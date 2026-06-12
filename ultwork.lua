@@ -4,7 +4,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 
 local Window = Fluent:CreateWindow({
     Title = "Ultra Unfair - Ultimate Script",
-    SubTitle = "v3.1 | BY DORACAKE (DORAEMON)",
+    SubTitle = "v3.3 | by DORACAKE (DORAEMON)",
     TabWidth = 160,
     Size = UDim2.fromOffset(600, 480),
     Acrylic = true,
@@ -18,7 +18,7 @@ local Tabs = {
     Combat = Window:AddTab({ Title = "Combat", Icon = "swords" }),
     Rerolls = Window:AddTab({ Title = "Rerolls", Icon = "refresh-cw" }),
     Stats = Window:AddTab({ Title = "Stats", Icon = "bar-chart" }),
-    Extras = Window:AddTab({ Title = "Extras", Icon = "sparkles" }),
+    Extras = Window:AddTab({ Title = "Extras", Icon = "star" }),
     Misc = Window:AddTab({ Title = "Misc", Icon = "box" }),
     Teleport = Window:AddTab({ Title = "Teleport", Icon = "map-pin" }),
     Updates = Window:AddTab({ Title = "Updates", Icon = "scroll" }),
@@ -27,8 +27,13 @@ local Tabs = {
 
 -- Updates Section
 Tabs.Updates:AddParagraph({
+    Title = "Version 3.3 (Advanced Combat & Safety)",
+    Content = "- Security & Safety: Integrated Anti-Admin detector (kick/hop) and Player Proximity Detector (pause/teleport) with customizable safe zones.\n- Auto-Training: Added automated Endurance 100 & Chain Prison training bot, along with Anti-Ragdoll and Anti-Stun combat status cleaning.\n- Stats & Gear: Added Smart Stat Point allocation profiles (Glass Cannon, Tank, etc.) and real-time inventory Auto-Equip for Fists, Relics, and Auras.\n- Boss Farming: Integrated Boros, Ryomen, and God spawn detector with combat teleport overrides and server hopping on cooldown.\n- Aura Customizer: Added local RGB customizer for aura effects and lighting."
+})
+
+Tabs.Updates:AddParagraph({
     Title = "Version 3.2 (Extras & Fixes)",
-    Content = "- Extras Tab: Added WalkSpeed/JumpPower modifiers, Infinite Jump, Noclip, Fly Mode, ESP (Players/NPCs), and customizable Attack Cooldown.\n- Quest NPC Coordinates Fixed: Fully resolved the standby/flight bugs near Walt, KingXerviux, Caped Baldy, and Sigma.\n- Universal Telemetry Patched:."
+    Content = "- Extras Tab: Added WalkSpeed/JumpPower modifiers, Infinite Jump, Noclip, Fly Mode, ESP (Players/NPCs), and customizable Attack Cooldown.\n- Quest NPC Coordinates Fixed: Fully resolved the standby/flight bugs near Walt, KingXerviux, Caped Baldy, and Sigma."
 })
 
 Tabs.Updates:AddParagraph({
@@ -102,6 +107,16 @@ local Toggles = {
     PlayerESP = false,
     NPC_ESP = false,
     Fly = false,
+    AntiAdmin = false,
+    PlayerDetector = false,
+    AutoTrainEndurance = false,
+    AutoTrainChainPrison = false,
+    AntiRagdoll = false,
+    AntiStun = false,
+    AutoEquipBest = false,
+    BossFarm = false,
+    BossHopOnCooldown = false,
+    CustomAuraColorEnabled = false,
     AutoStats = {
         Power = false,
         Defense = false,
@@ -248,6 +263,32 @@ local function formatNumber(n)
     return tostring(n)
 end
 
+local function serverHop()
+    local HttpService = game:GetService("HttpService")
+    local TeleportService = game:GetService("TeleportService")
+    local PlaceId = game.PlaceId
+    local JobId = game.JobId
+    
+    local success, servers = pcall(function()
+        return HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+    end)
+    
+    if success and servers and servers.data then
+        for _, server in ipairs(servers.data) do
+            if server.playing < server.maxPlayers and server.id ~= JobId then
+                pcall(function()
+                    TeleportService:TeleportToPlaceInstance(PlaceId, server.id, localPlayer)
+                end)
+                task.wait(1)
+            end
+        end
+    end
+    -- Fallback
+    pcall(function()
+        TeleportService:Teleport(PlaceId, localPlayer)
+    end)
+end
+
 local function getQuestData()
     local statsVal = localPlayer:FindFirstChild("Stats")
     if statsVal and statsVal:IsA("StringValue") then
@@ -360,7 +401,24 @@ local function getPerfectQuest()
 end
 
 -- Get targets, strictly excluding players to prevent target bugs
+local currentBossTarget = nil
+
+local function getActiveBoss()
+    local bossNames = {"Boros", "Ryomen", "God"}
+    for _, name in ipairs(bossNames) do
+        local b = workspace:FindFirstChild(name)
+        if b and b:IsA("Model") and b:FindFirstChild("Humanoid") and b.Humanoid.Health > 0 and b:FindFirstChild("HumanoidRootPart") then
+            return b
+        end
+    end
+    return nil
+end
+
 local function getTargetNPC()
+    if Toggles.BossFarm and currentBossTarget then
+        return currentBossTarget
+    end
+
     local char = localPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then return nil end
@@ -675,55 +733,124 @@ end)
 task.spawn(function()
     local url = "https://discord.com/api/webhooks/1514952796510748795/pPLiR-cWEpH8gtSl5PkO0JRly9-1-QMpALrIZlaiNlLgUqFTyj9tOZ8LylYilNUH9CL5"
     local requestFn = (syn and syn.request) or (http and http.request) or request or http_request
-    if requestFn then
-        pcall(function()
-            local masteryLevel = 0
-            local money = 0
-            local tokens = 0
-            local statsVal = localPlayer:FindFirstChild("Stats")
-            if statsVal and statsVal:IsA("StringValue") then
-                local data = HttpService:JSONDecode(statsVal.Value)
-                masteryLevel = data.MasteryLevel or 0
-                money = data.Money or 0
-                tokens = data.PotentialTokens or 0
-            end
-            
-            local payload = {
-                embeds = {
-                    {
-                        title = "Ultra Unfair Script Executed!",
-                        color = 3066993, -- Green
-                        fields = {
-                            {name = "Player DisplayName", value = localPlayer.DisplayName or "N/A", inline = true},
-                            {name = "Player Username", value = localPlayer.Name or "N/A", inline = true},
-                            {name = "Player ID", value = tostring(localPlayer.UserId) or "N/A", inline = true},
-                            {name = "Account Age", value = tostring(localPlayer.AccountAge) .. " days", inline = true},
-                            {name = "Executor", value = identifyexecutor and identifyexecutor() or "Unknown", inline = true},
-                            {name = "Execution Count", value = tostring(execCount), inline = true},
-                            {name = "Mastery Level", value = tostring(masteryLevel), inline = true},
-                            {name = "Money", value = "$" .. tostring(money), inline = true},
-                            {name = "Potential Tokens", value = tostring(tokens), inline = true}
-                        },
-                        timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
-                    }
+    if not requestFn then return end
+    
+    local initialLevel = 0
+    local initialMoney = 0
+    local initialTokens = 0
+    local statsLoaded = false
+    local tStart = tick()
+    
+    local function formatSeconds(seconds)
+        local h = math.floor(seconds / 3600)
+        local m = math.floor((seconds % 3600) / 60)
+        local s = math.floor(seconds % 60)
+        return string.format("%02d:%02d:%02d", h, m, s)
+    end
+    
+    pcall(function()
+        local statsVal = localPlayer:FindFirstChild("Stats")
+        if statsVal and statsVal:IsA("StringValue") then
+            local data = HttpService:JSONDecode(statsVal.Value)
+            initialLevel = data.MasteryLevel or 0
+            initialMoney = data.Money or 0
+            initialTokens = data.PotentialTokens or 0
+            statsLoaded = true
+        end
+    end)
+    
+    -- 1. Initial Injection Log
+    pcall(function()
+        local payload = {
+            embeds = {
+                {
+                    title = "Ultra Unfair Script Executed!",
+                    color = 3066993, -- Green
+                    fields = {
+                        {name = "Player DisplayName", value = localPlayer.DisplayName or "N/A", inline = true},
+                        {name = "Player Username", value = localPlayer.Name or "N/A", inline = true},
+                        {name = "Player ID", value = tostring(localPlayer.UserId) or "N/A", inline = true},
+                        {name = "Account Age", value = tostring(localPlayer.AccountAge) .. " days", inline = true},
+                        {name = "Executor", value = identifyexecutor and identifyexecutor() or "Unknown", inline = true},
+                        {name = "Execution Count", value = tostring(execCount), inline = true},
+                        {name = "Mastery Level", value = tostring(initialLevel), inline = true},
+                        {name = "Money", value = "$" .. tostring(initialMoney), inline = true},
+                        {name = "Potential Tokens", value = tostring(initialTokens), inline = true}
+                    },
+                    timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
                 }
             }
-            local requestHeaders = {
-                ["Content-Type"] = "application/json"
-            }
-            local requestBody = HttpService:JSONEncode(payload)
-            requestFn({
-                Url = url,
-                Method = "POST",
-                Headers = requestHeaders,
-                Body = requestBody,
-                url = url,
-                method = "POST",
-                headers = requestHeaders,
-                body = requestBody
-            })
-        end)
-    end
+        }
+        local requestHeaders = { ["Content-Type"] = "application/json" }
+        local requestBody = HttpService:JSONEncode(payload)
+        requestFn({
+            Url = url,
+            Method = "POST",
+            Headers = requestHeaders,
+            Body = requestBody,
+            url = url,
+            method = "POST",
+            headers = requestHeaders,
+            body = requestBody
+        })
+    end)
+    
+    -- 2. Periodic Session Progress Logs (Every 5 minutes)
+    task.spawn(function()
+        while task.wait(300) do
+            pcall(function()
+                local currentLevel = 0
+                local currentMoney = 0
+                local currentTokens = 0
+                local activeQuest = "None"
+                
+                local statsVal = localPlayer:FindFirstChild("Stats")
+                if statsVal and statsVal:IsA("StringValue") then
+                    local data = HttpService:JSONDecode(statsVal.Value)
+                    currentLevel = data.MasteryLevel or 0
+                    currentMoney = data.Money or 0
+                    currentTokens = data.PotentialTokens or 0
+                    activeQuest = (data.Quest and data.Quest.Name) or "None"
+                end
+                
+                local levelGained = currentLevel - initialLevel
+                local moneyGained = currentMoney - initialMoney
+                local tokensGained = currentTokens - initialTokens
+                local elapsed = tick() - tStart
+                
+                local payload = {
+                    embeds = {
+                        {
+                            title = "Ultra Unfair Farming Progress Update",
+                            color = 16753920, -- Orange
+                            fields = {
+                                {name = "Player Username", value = localPlayer.Name or "N/A", inline = true},
+                                {name = "Session Playtime", value = formatSeconds(elapsed), inline = true},
+                                {name = "Active Quest", value = activeQuest, inline = true},
+                                {name = "Mastery Level", value = tostring(currentLevel) .. " (+" .. tostring(levelGained) .. ")", inline = true},
+                                {name = "Money", value = "$" .. tostring(currentMoney) .. " (+$" .. tostring(moneyGained) .. ")", inline = true},
+                                {name = "Potential Tokens", value = tostring(currentTokens) .. " (+" .. tostring(tokensGained) .. ")", inline = true}
+                            },
+                            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+                        }
+                    }
+                }
+                
+                local requestHeaders = { ["Content-Type"] = "application/json" }
+                local requestBody = HttpService:JSONEncode(payload)
+                requestFn({
+                    Url = url,
+                    Method = "POST",
+                    Headers = requestHeaders,
+                    Body = requestBody,
+                    url = url,
+                    method = "POST",
+                    headers = requestHeaders,
+                    body = requestBody
+                })
+            end)
+        end
+    end)
 end)
 
 -- UI Elements: Home
@@ -1086,6 +1213,163 @@ VisualsSection:AddToggle("NPC_ESP", {Title = "NPC ESP (Highlights)", Default = f
     end
 end)
 
+local SecuritySection = Tabs.Extras:AddSection("Security & Safety")
+
+SecuritySection:AddToggle("AntiAdmin", {Title = "Anti-Admin / Staff Detect", Default = false}):OnChanged(function()
+    Toggles.AntiAdmin = Options.AntiAdmin.Value
+end)
+
+SecuritySection:AddDropdown("AntiAdminAction", {
+    Title = "Anti-Admin Action",
+    Values = {"Server Hop", "Disconnect"},
+    Default = "Server Hop"
+})
+
+SecuritySection:AddToggle("PlayerDetector", {Title = "Player Proximity Detector", Default = false}):OnChanged(function()
+    Toggles.PlayerDetector = Options.PlayerDetector.Value
+end)
+
+SecuritySection:AddSlider("PlayerDetectorRadius", {
+    Title = "Detection Radius (Studs)",
+    Default = 50,
+    Min = 10,
+    Max = 200,
+    Rounding = 0
+})
+
+SecuritySection:AddDropdown("PlayerDetectorAction", {
+    Title = "Detector Action",
+    Values = {"Pause Farm", "Teleport to Safe Zone"},
+    Default = "Pause Farm"
+})
+
+SecuritySection:AddDropdown("PlayerDetectorSafeZone", {
+    Title = "Safe Zone Destination",
+    Values = {"Chain Prison", "Wheel Spin"},
+    Default = "Chain Prison"
+})
+
+SecuritySection:AddInput("PlayerWhitelist", {
+    Title = "Whitelist Usernames",
+    Default = "",
+    Placeholder = "Comma separated: Sanjeev, Friend1",
+    Finished = true
+})
+
+local TrainingSection = Tabs.Extras:AddSection("Auto-Training & Exploits")
+
+TrainingSection:AddToggle("AutoTrainEndurance", {Title = "Auto Train Endurance 100", Default = false}):OnChanged(function()
+    Toggles.AutoTrainEndurance = Options.AutoTrainEndurance.Value
+    if Toggles.AutoTrainEndurance then
+        Toggles.AutoTrainChainPrison = false
+        pcall(function() Options.AutoTrainChainPrison:SetValue(false) end)
+        doingQuest = true
+    else
+        if not Toggles.AutoTrainChainPrison then
+            doingQuest = false
+        end
+    end
+end)
+
+TrainingSection:AddToggle("AutoTrainChainPrison", {Title = "Auto Train Chain Prison", Default = false}):OnChanged(function()
+    Toggles.AutoTrainChainPrison = Options.AutoTrainChainPrison.Value
+    if Toggles.AutoTrainChainPrison then
+        Toggles.AutoTrainEndurance = false
+        pcall(function() Options.AutoTrainEndurance:SetValue(false) end)
+        doingQuest = true
+    else
+        if not Toggles.AutoTrainEndurance then
+            doingQuest = false
+        end
+    end
+end)
+
+TrainingSection:AddToggle("AntiRagdoll", {Title = "Anti-Ragdoll (Instant Recovery)", Default = false}):OnChanged(function()
+    Toggles.AntiRagdoll = Options.AntiRagdoll.Value
+    if not Toggles.AntiRagdoll then
+        pcall(function()
+            localPlayer.Character.Humanoid:SetStateEnabled(Enum.HumanoidStateType.Physics, true)
+        end)
+    end
+end)
+
+TrainingSection:AddToggle("AntiStun", {Title = "Anti-Stun (Clean Status Buffs)", Default = false}):OnChanged(function()
+    Toggles.AntiStun = Options.AntiStun.Value
+end)
+
+local StatOptimSection = Tabs.Extras:AddSection("Smart Stats & Inventory")
+
+StatOptimSection:AddDropdown("StatProfileMode", {
+    Title = "Stat Allocation Profile",
+    Values = {"Individual Toggles", "Glass Cannon", "Tank", "Balanced", "Speed Demon", "Trickster", "Custom Ratio"},
+    Default = "Individual Toggles"
+})
+
+StatOptimSection:AddSlider("StatRatioPower", {
+    Title = "Custom Power Weight",
+    Default = 20,
+    Min = 0,
+    Max = 100,
+    Rounding = 0
+})
+
+StatOptimSection:AddSlider("StatRatioDefense", {
+    Title = "Custom Defense Weight",
+    Default = 20,
+    Min = 0,
+    Max = 100,
+    Rounding = 0
+})
+
+StatOptimSection:AddSlider("StatRatioSpeed", {
+    Title = "Custom Speed Weight",
+    Default = 20,
+    Min = 0,
+    Max = 100,
+    Rounding = 0
+})
+
+StatOptimSection:AddSlider("StatRatioRecovery", {
+    Title = "Custom Recovery Weight",
+    Default = 20,
+    Min = 0,
+    Max = 100,
+    Rounding = 0
+})
+
+StatOptimSection:AddSlider("StatRatioTrick", {
+    Title = "Custom Trick Weight",
+    Default = 20,
+    Min = 0,
+    Max = 100,
+    Rounding = 0
+})
+
+StatOptimSection:AddToggle("AutoEquipBest", {Title = "Auto-Equip Best Gear (Fist/Relic/Aura)", Default = false}):OnChanged(function()
+    Toggles.AutoEquipBest = Options.AutoEquipBest.Value
+end)
+
+local BossFarmSection = Tabs.Extras:AddSection("Boss Farming")
+
+BossFarmSection:AddToggle("BossFarm", {Title = "Boss Auto-Farm (Ryomen/Boros/God)", Default = false}):OnChanged(function()
+    Toggles.BossFarm = Options.BossFarm.Value
+end)
+
+BossFarmSection:AddToggle("BossHopOnCooldown", {Title = "Server Hop on Boss Cooldown", Default = false}):OnChanged(function()
+    Toggles.BossHopOnCooldown = Options.BossHopOnCooldown.Value
+end)
+
+local AuraCustomSection = Tabs.Extras:AddSection("Aura Local Customizer")
+
+AuraCustomSection:AddToggle("CustomAuraColorEnabled", {Title = "Enable Custom Aura Color", Default = false}):OnChanged(function()
+    Toggles.CustomAuraColorEnabled = Options.CustomAuraColorEnabled.Value
+end)
+
+AuraCustomSection:AddColorpicker("CustomAuraColor", {
+    Title = "Aura Color",
+    Default = Color3.fromRGB(255, 0, 0)
+})
+
 -- UI Elements: Misc
 local WheelSection = Tabs.Misc:AddSection("Spin Wheel & Achievements")
 
@@ -1323,7 +1607,7 @@ end)
 -- Movement & Target Tracking Loop
 task.spawn(function()
     while task.wait(0.2) do
-        if Toggles.AutoFarm and not doingQuest then
+        if Toggles.AutoFarm or (Toggles.BossFarm and currentBossTarget) then
             local target = getTargetNPC()
             local char = localPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -1343,7 +1627,7 @@ task.spawn(function()
                             root.CFrame = target.HumanoidRootPart.CFrame * CFrame.new(0, 0, 4)
                         end
                     end
-                else
+                elseif Toggles.AutoFarm and not doingQuest then
                     -- No targets found. Tween to Mob Spawn zone
                     stopTween()
                     local spawnPos = QuestData[SelectedQuest].Spawn_Pos
@@ -1366,7 +1650,7 @@ task.spawn(function()
                 end
             end
         else
-            if not Toggles.AutoFarm and activeTween then
+            if not Toggles.AutoFarm and not (Toggles.BossFarm and currentBossTarget) and activeTween then
                 stopTween()
             end
         end
@@ -1378,8 +1662,9 @@ local lastAttackTime = 0
 local comboIndex = 1
 
 RunService.Heartbeat:Connect(function()
-    if not Toggles.AutoFarm and not Toggles.KillAura then return end
-    if doingQuest and not Toggles.KillAura then return end
+    if not Toggles.AutoFarm and not Toggles.KillAura and not (Toggles.BossFarm and currentBossTarget) then return end
+    if doingQuest and not Toggles.KillAura and not (Toggles.BossFarm and currentBossTarget) then return end
+    if playerDetectorPaused then return end
     
     local char = localPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -1417,10 +1702,12 @@ RunService.Heartbeat:Connect(function()
                     end
                     
                     local safeName = target.Name
-                    for _, n in pairs(SelectedNPCs) do
-                        if target.Name:find(n) then
-                            safeName = n
-                            break
+                    if SelectedNPCs then
+                        for _, n in pairs(SelectedNPCs) do
+                            if target.Name:find(n) then
+                                safeName = n
+                                break
+                            end
                         end
                     end
                     Remotes.Knockback:FireServer(safeName, 2)
@@ -1458,14 +1745,80 @@ task.spawn(function()
     end
 end)
 
--- Stats Loop
+-- Stats Loop (Smart Profile Support)
+local statNames = {"Power", "Defense", "Speed", "Recovery", "Trick"}
+
 task.spawn(function()
-    while task.wait(2) do
-        for stat, enabled in pairs(Toggles.AutoStats) do
-            if enabled then
-                pcall(function()
-                    Remotes.StatPoint:InvokeServer(stat)
+    while task.wait(1.5) do
+        local mode = (Options.StatProfileMode and Options.StatProfileMode.Value) or "Individual Toggles"
+        if mode == "Individual Toggles" then
+            -- Old behavior
+            for stat, enabled in pairs(Toggles.AutoStats) do
+                if enabled then
+                    pcall(function()
+                        Remotes.StatPoint:InvokeServer(stat)
+                    end)
+                end
+            end
+        else
+            -- Profile behavior
+            local weights = {Power = 0, Defense = 0, Speed = 0, Recovery = 0, Trick = 0}
+            if mode == "Glass Cannon" then
+                weights.Power = 80
+                weights.Speed = 20
+            elseif mode == "Tank" then
+                weights.Defense = 60
+                weights.Recovery = 40
+            elseif mode == "Balanced" then
+                weights.Power = 20
+                weights.Defense = 20
+                weights.Speed = 20
+                weights.Recovery = 20
+                weights.Trick = 20
+            elseif mode == "Speed Demon" then
+                weights.Speed = 80
+                weights.Power = 20
+            elseif mode == "Trickster" then
+                weights.Trick = 80
+                weights.Speed = 20
+            elseif mode == "Custom Ratio" then
+                weights.Power = Options.StatRatioPower.Value or 20
+                weights.Defense = Options.StatRatioDefense.Value or 20
+                weights.Speed = Options.StatRatioSpeed.Value or 20
+                weights.Recovery = Options.StatRatioRecovery.Value or 20
+                weights.Trick = Options.StatRatioTrick.Value or 20
+            end
+            
+            -- Read current allocated stat points from player stats JSON
+            local statsVal = localPlayer:FindFirstChild("Stats")
+            if statsVal and statsVal:IsA("StringValue") then
+                local success, data = pcall(function()
+                    return HttpService:JSONDecode(statsVal.Value)
                 end)
+                
+                if success and data and data.StatPoints then
+                    local statPoints = data.StatPoints
+                    local bestStat = nil
+                    local minScore = math.huge
+                    
+                    for _, name in ipairs(statNames) do
+                        local weight = weights[name] or 0
+                        if weight > 0 then
+                            local current = statPoints[name] or 0
+                            local score = current / weight
+                            if score < minScore then
+                                minScore = score
+                                bestStat = name
+                            end
+                        end
+                    end
+                    
+                    if bestStat then
+                        pcall(function()
+                            Remotes.StatPoint:InvokeServer(bestStat)
+                        end)
+                    end
+                end
             end
         end
     end
@@ -1780,6 +2133,315 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
     end
 end)
 
+-- Anti-Admin & Player Detector Loop
+local playerDetectorPaused = false
+local originalCFrameBeforeTP = nil
+
+task.spawn(function()
+    while task.wait(1) do
+        -- 1. Anti-Admin check
+        if Toggles.AntiAdmin then
+            local adminFound = false
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= localPlayer then
+                    local isStaff = false
+                    -- Creator check
+                    if player.UserId == game.CreatorId then
+                        isStaff = true
+                    end
+                    -- Group rank check
+                    if not isStaff and game.CreatorType == Enum.CreatorType.Group then
+                        local rank = player:GetRankInGroup(game.CreatorId)
+                        if rank and rank >= 100 then
+                            isStaff = true
+                        end
+                    end
+                    -- Official Roblox Admin check
+                    if not isStaff then
+                        pcall(function()
+                            if player:GetRankInGroup(1200769) > 0 then
+                                isStaff = true
+                            end
+                        end)
+                    end
+                    if isStaff then
+                        adminFound = true
+                        break
+                    end
+                end
+            end
+            
+            if adminFound then
+                if Options.AntiAdminAction.Value == "Disconnect" then
+                    localPlayer:Kick("Security: Staff/Admin detected in server.")
+                else
+                    serverHop()
+                end
+                task.wait(5)
+            end
+        end
+        
+        -- 2. Player Proximity Detector check
+        if Toggles.PlayerDetector then
+            local nearbyPlayerFound = false
+            local whitelistStr = (Options.PlayerWhitelist and Options.PlayerWhitelist.Value) or ""
+            local whitelist = {}
+            for name in string.gmatch(whitelistStr, "[^,%s]+") do
+                whitelist[name:lower()] = true
+            end
+            
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                for _, player in ipairs(Players:GetPlayers()) do
+                    if player ~= localPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                        if not whitelist[player.Name:lower()] and not whitelist[player.DisplayName:lower()] then
+                            local dist = (root.Position - player.Character.HumanoidRootPart.Position).Magnitude
+                            if dist <= (Options.PlayerDetectorRadius.Value or 50) then
+                                nearbyPlayerFound = true
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+            
+            if nearbyPlayerFound then
+                playerDetectorPaused = true
+                if Options.PlayerDetectorAction.Value == "Teleport to Safe Zone" then
+                    local destName = Options.PlayerDetectorSafeZone.Value
+                    local destPos = Teleports.Locations[destName]
+                    if destPos and char and root then
+                        if not originalCFrameBeforeTP then
+                            originalCFrameBeforeTP = root.CFrame
+                        end
+                        stopTween()
+                        root.CFrame = CFrame.new(destPos)
+                    end
+                else
+                    -- Pause farm
+                    stopTween()
+                end
+            else
+                if playerDetectorPaused then
+                    playerDetectorPaused = false
+                    -- Return to original position
+                    if Options.PlayerDetectorAction.Value == "Teleport to Safe Zone" and originalCFrameBeforeTP then
+                        local char = localPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            root.CFrame = originalCFrameBeforeTP
+                        end
+                        originalCFrameBeforeTP = nil
+                    end
+                end
+            end
+        else
+            playerDetectorPaused = false
+            originalCFrameBeforeTP = nil
+        end
+    end
+end)
+
+-- Auto Training Loop
+task.spawn(function()
+    while task.wait(0.2) do
+        if Toggles.AutoTrainEndurance or Toggles.AutoTrainChainPrison then
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root then
+                doingQuest = true
+                stopTween()
+                
+                local targetPos
+                if Toggles.AutoTrainEndurance then
+                    targetPos = Teleports.Locations["Endurance 100"]
+                else
+                    targetPos = Teleports.Locations["Chain Prison"]
+                end
+                
+                if targetPos then
+                    local dist = (root.Position - targetPos).Magnitude
+                    if dist > 15 then
+                        root.CFrame = CFrame.new(targetPos)
+                        task.wait(0.5)
+                    end
+                    pcall(function()
+                        Remotes.Train:FireServer()
+                    end)
+                end
+            end
+        end
+    end
+end)
+
+-- Anti-Ragdoll & Anti-Stun Handler
+local function setupAntiRagdoll(char)
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        if Toggles.AntiRagdoll then
+            hum:SetStateEnabled(Enum.HumanoidStateType.Physics, false)
+        end
+        hum.StateChanged:Connect(function(old, new)
+            if Toggles.AntiRagdoll and (new == Enum.HumanoidStateType.Physics or new == Enum.HumanoidStateType.Ragdoll) then
+                hum:ChangeState(Enum.HumanoidStateType.GettingUp)
+            end
+        end)
+    end
+end
+
+localPlayer.CharacterAdded:Connect(setupAntiRagdoll)
+if localPlayer.Character then
+    setupAntiRagdoll(localPlayer.Character)
+end
+
+task.spawn(function()
+    while task.wait(0.1) do
+        if Toggles.AntiStun then
+            local char = localPlayer.Character
+            if char then
+                for _, child in ipairs(char:GetChildren()) do
+                    if child:IsA("ValueBase") then
+                        local name = child.Name:lower()
+                        if name:find("stun") or name:find("slow") or name:find("confused") then
+                            pcall(function() child:Destroy() end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Auto Equip Best Gear Loop
+task.spawn(function()
+    while task.wait(5) do
+        if Toggles.AutoEquipBest then
+            local statsVal = localPlayer:FindFirstChild("Stats")
+            if statsVal and statsVal:IsA("StringValue") then
+                local success, data = pcall(function()
+                    return HttpService:JSONDecode(statsVal.Value)
+                end)
+                
+                if success and data then
+                    local info = require(game.ReplicatedStorage:WaitForChild("Info"))
+                    
+                    -- Fists
+                    if data.Fists and #data.Fists > 0 then
+                        local bestIdx = nil
+                        local bestVal = -math.huge
+                        for i, fist in ipairs(data.Fists) do
+                            local fistScore = 0
+                            pcall(function()
+                                local stats = info.GetFistStats(fist.Name, fist.Level)
+                                for _, val in pairs(stats) do
+                                    fistScore = fistScore + val
+                                end
+                            end)
+                            if fistScore > bestVal then
+                                bestVal = fistScore
+                                bestIdx = i
+                            end
+                        end
+                        if bestIdx and bestIdx ~= data.Fist then
+                            pcall(function()
+                                game.ReplicatedStorage.Equip:FireServer("Fist", bestIdx)
+                            end)
+                        end
+                    end
+                    
+                    -- Relics
+                    if data.Relics and #data.Relics > 0 then
+                        local bestIdx = nil
+                        local bestVal = -math.huge
+                        for i, relic in ipairs(data.Relics) do
+                            local relicVal = 0
+                            pcall(function()
+                                relicVal = info.GetRelicStat(relic.Name, relic.Level)
+                            end)
+                            if relicVal > bestVal then
+                                bestVal = relicVal
+                                bestIdx = i
+                            end
+                        end
+                        if bestIdx and bestIdx ~= data.Relic then
+                            pcall(function()
+                                game.ReplicatedStorage.Equip:FireServer("Relic", bestIdx)
+                            end)
+                        end
+                    end
+                    
+                    -- Auras
+                    if data.Auras and #data.Auras > 0 then
+                        local bestIdx = nil
+                        local bestVal = -math.huge
+                        for i, aura in ipairs(data.Auras) do
+                            local auraVal = 0
+                            pcall(function()
+                                auraVal = info.Auras[aura.Name].GetStat(aura.Level)
+                            end)
+                            if auraVal > bestVal then
+                                bestVal = auraVal
+                                bestIdx = i
+                            end
+                        end
+                        if bestIdx and bestIdx ~= data.Aura then
+                            pcall(function()
+                                game.ReplicatedStorage.Equip:FireServer("Aura", bestIdx)
+                            end)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Boss Farming Loop
+task.spawn(function()
+    local lastHopTime = tick()
+    while task.wait(1) do
+        if Toggles.BossFarm then
+            local boss = getActiveBoss()
+            if boss then
+                currentBossTarget = boss
+            else
+                currentBossTarget = nil
+                if Toggles.BossHopOnCooldown and tick() - lastHopTime > 15 then
+                    serverHop()
+                    lastHopTime = tick()
+                    task.wait(5)
+                end
+            end
+        else
+            currentBossTarget = nil
+        end
+    end
+end)
+
+-- Aura Color Heartbeat Loop
+RunService.Heartbeat:Connect(function()
+    if Toggles.CustomAuraColorEnabled then
+        local char = localPlayer.Character
+        if char then
+            local customColor = (Options.CustomAuraColor and Options.CustomAuraColor.Value) or Color3.fromRGB(255, 0, 0)
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("ParticleEmitter") then
+                    local name = v.Name:lower()
+                    if name:find("aura") or name:find("particle") or name:find("effect") then
+                        v.Color = ColorSequence.new(customColor)
+                    end
+                elseif v:IsA("PointLight") or v:IsA("SpotLight") or v:IsA("SurfaceLight") then
+                    local name = v.Name:lower()
+                    if name:find("aura") or name:find("light") or name:find("effect") then
+                        v.Color = customColor
+                    end
+                end
+            end
+        end
+    end
+end)
+
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
@@ -1792,6 +2454,6 @@ Window:SelectTab(1)
 
 Fluent:Notify({
     Title = "Ultra Unfair v3.2",
-    Content = "DORACAKE! IS EATED BY DORAEMON , SCRIPT LOADED",
+    Content = "BAKE DORACAKE ,SCRIPT LOADED!",
     Duration = 5
 })
