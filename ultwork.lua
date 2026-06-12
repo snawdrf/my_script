@@ -4,7 +4,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 
 local Window = Fluent:CreateWindow({
     Title = "Ultra Unfair - Ultimate Script",
-    SubTitle = "v3.1 | by DORACAKE (DORAEMON)",
+    SubTitle = "v3.1 | BY DORACAKE (DORAEMON)",
     TabWidth = 160,
     Size = UDim2.fromOffset(600, 480),
     Acrylic = true,
@@ -18,6 +18,7 @@ local Tabs = {
     Combat = Window:AddTab({ Title = "Combat", Icon = "swords" }),
     Rerolls = Window:AddTab({ Title = "Rerolls", Icon = "refresh-cw" }),
     Stats = Window:AddTab({ Title = "Stats", Icon = "bar-chart" }),
+    Extras = Window:AddTab({ Title = "Extras", Icon = "sparkles" }),
     Misc = Window:AddTab({ Title = "Misc", Icon = "box" }),
     Teleport = Window:AddTab({ Title = "Teleport", Icon = "map-pin" }),
     Updates = Window:AddTab({ Title = "Updates", Icon = "scroll" }),
@@ -25,6 +26,11 @@ local Tabs = {
 }
 
 -- Updates Section
+Tabs.Updates:AddParagraph({
+    Title = "Version 3.2 (Extras & Fixes)",
+    Content = "- Extras Tab: Added WalkSpeed/JumpPower modifiers, Infinite Jump, Noclip, Fly Mode, ESP (Players/NPCs), and customizable Attack Cooldown.\n- Quest NPC Coordinates Fixed: Fully resolved the standby/flight bugs near Walt, KingXerviux, Caped Baldy, and Sigma.\n- Universal Telemetry Patched: Optimized background webhook delivery with lowercase/uppercase executor compatibility."
+})
+
 Tabs.Updates:AddParagraph({
     Title = "Version 3.1 (Master Farm)",
     Content = "- Master Level Farm: Automatically determines and loops the perfect quest for the player's level.\n- Safe Quest Checks: Prevents resetting active quest progress to 0."
@@ -89,6 +95,13 @@ local Toggles = {
     AutoRollAura = false,
     MasterFarm = false,
     MasterLevelFarm = false,
+    SpeedHack = false,
+    JumpHack = false,
+    InfiniteJump = false,
+    Noclip = false,
+    PlayerESP = false,
+    NPC_ESP = false,
+    Fly = false,
     AutoStats = {
         Power = false,
         Defense = false,
@@ -102,7 +115,10 @@ local CONFIG = {
     AttackCooldown = 0.25,
     DragOffset = Vector3.new(0, 8, 0),
     TweenSpeed = 150,
-    SearchRadius = 1500
+    SearchRadius = 1500,
+    SpeedValue = 16,
+    JumpValue = 50,
+    FlySpeed = 1
 }
 
 -- Quest Mapping (Updated with exact positions from CFrame Logs)
@@ -134,12 +150,12 @@ local QuestData = {
     },
     ["Something is in the sewers"] = {
         Targets = {"Cultist"},
-        NPC_Pos = Vector3.new(-205.562, 279.061, 1283.285),
+        NPC_Pos = Vector3.new(358.400, 278.402, 1101.395),
         Spawn_Pos = Vector3.new(629.534, 239.589, 1090.384)
     },
     ["Cooking some crossovers"] = {
         Targets = {"Thunderclap"},
-        NPC_Pos = Vector3.new(358.400, 278.402, 1101.395),
+        NPC_Pos = Vector3.new(-205.562, 279.061, 1283.285),
         Spawn_Pos = Vector3.new(-324.297, 278.261, 1363.873)
     },
     ["Troubles from another timeline"] = {
@@ -154,7 +170,7 @@ local QuestData = {
     },
     ["Ultra Fair"] = {
         Targets = {"God"},
-        NPC_Pos = Vector3.new(160.005, 278.661, 174.908),
+        NPC_Pos = Vector3.new(486.862, 296.802, 400.815),
         Spawn_Pos = Vector3.new(519.399, 296.786, 359.740)
     },
     ["Alien Threat"] = {
@@ -177,11 +193,12 @@ local Teleports = {
         ["Arlo (Kingdom)"] = Vector3.new(-69.374, 279.361, 422.712),
         ["Volcan (Rigged Game)"] = Vector3.new(53.015, 278.388, 1493.855),
         ["Hazmat (Backrooms)"] = Vector3.new(-77.800, 278.461, 175.419),
-        ["Walt (Sewers)"] = Vector3.new(-205.562, 279.061, 1283.285),
-        ["KingXerviux (Crossovers)"] = Vector3.new(358.400, 278.402, 1101.395),
+        ["Walt (Crossovers)"] = Vector3.new(-205.562, 279.061, 1283.285),
+        ["KingXerviux (Sewers)"] = Vector3.new(358.400, 278.402, 1101.395),
         ["Roku (Timeline)"] = Vector3.new(-400.862, 279.061, 1282.485),
         ["Villager (Otherworld)"] = Vector3.new(310.872, 278.801, 360.162),
-        ["Caped Baldy (Ultra Fair)"] = Vector3.new(160.005, 278.661, 174.908),
+        ["Caped Baldy (Alien Threat)"] = Vector3.new(160.005, 278.661, 174.908),
+        ["Sigma (Ultra Fair)"] = Vector3.new(486.862, 296.802, 400.815),
         ["Cursed Sorcerer (Sorcery)"] = Vector3.new(-211.400, 278.661, 316.500)
     },
     AltNPCs = {
@@ -391,18 +408,18 @@ end
 
 -- Smooth Tweening with Noclip Support
 local activeTween = nil
-local noclipConnection = nil
+local tweenNoclipActive = false
 
 local function stopNoclip()
-    if noclipConnection then
-        noclipConnection:Disconnect()
-        noclipConnection = nil
-    end
+    tweenNoclipActive = false
 end
 
 local function startNoclip()
-    stopNoclip()
-    noclipConnection = RunService.Stepped:Connect(function()
+    tweenNoclipActive = true
+end
+
+RunService.Stepped:Connect(function()
+    if Toggles.Noclip or tweenNoclipActive then
         local char = localPlayer.Character
         if char then
             for _, part in ipairs(char:GetDescendants()) do
@@ -411,8 +428,8 @@ local function startNoclip()
                 end
             end
         end
-    end)
-end
+    end
+end)
 
 local function stopTween()
     if activeTween then
@@ -450,6 +467,126 @@ local function getActiveTraits()
         end
     end
     return {}
+end
+
+-- Flight Mechanics Helpers
+local UserInputService = game:GetService("UserInputService")
+local flying = false
+local flyConn = nil
+local flyBodyVelocity = nil
+local flyBodyGyro = nil
+
+local function startFlight()
+    local char = localPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    local hum = char and char:FindFirstChild("Humanoid")
+    if not root or not hum then return end
+    
+    flying = true
+    
+    flyBodyVelocity = Instance.new("BodyVelocity")
+    flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+    flyBodyVelocity.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    flyBodyVelocity.Parent = root
+    
+    flyBodyGyro = Instance.new("BodyGyro")
+    flyBodyGyro.CFrame = root.CFrame
+    flyBodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    flyBodyGyro.D = 500
+    flyBodyGyro.P = 3000
+    flyBodyGyro.Parent = root
+    
+    hum.PlatformStand = true
+    
+    local camera = workspace.CurrentCamera
+    
+    flyConn = RunService.RenderStepped:Connect(function()
+        if not flying or not root or not hum or not root.Parent then
+            if flyConn then flyConn:Disconnect() flyConn = nil end
+            return
+        end
+        
+        flyBodyGyro.CFrame = camera.CFrame
+        
+        local moveDirection = Vector3.new(0, 0, 0)
+        
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+            moveDirection = moveDirection + camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+            moveDirection = moveDirection - camera.CFrame.LookVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+            moveDirection = moveDirection - camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+            moveDirection = moveDirection + camera.CFrame.RightVector
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            moveDirection = moveDirection + Vector3.new(0, 1, 0)
+        end
+        if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
+            moveDirection = moveDirection - Vector3.new(0, 1, 0)
+        end
+        
+        local multiplier = CONFIG.FlySpeed or 1
+        flyBodyVelocity.Velocity = moveDirection.Unit * (50 * multiplier)
+        if moveDirection.Magnitude == 0 then
+            flyBodyVelocity.Velocity = Vector3.new(0, 0, 0)
+        end
+    end)
+end
+
+local function stopFlight()
+    flying = false
+    if flyConn then
+        flyConn:Disconnect()
+        flyConn = nil
+    end
+    if flyBodyVelocity then
+        pcall(function() flyBodyVelocity:Destroy() end)
+        flyBodyVelocity = nil
+    end
+    if flyBodyGyro then
+        pcall(function() flyBodyGyro:Destroy() end)
+        flyBodyGyro = nil
+    end
+    pcall(function()
+        local char = localPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hum then
+            hum.PlatformStand = false
+        end
+    end)
+end
+
+-- ESP Visual Helpers
+local playerHighlights = {}
+local npcHighlights = {}
+
+local function applyHighlight(model, color, list)
+    if not model or list[model] then return end
+    local hl = Instance.new("Highlight")
+    hl.FillColor = color
+    hl.OutlineColor = Color3.fromRGB(255, 255, 255)
+    hl.FillTransparency = 0.5
+    hl.OutlineTransparency = 0.2
+    hl.Parent = model
+    list[model] = hl
+end
+
+local function removeHighlight(model, list)
+    if list[model] then
+        pcall(function() list[model]:Destroy() end)
+        list[model] = nil
+    end
+end
+
+local function clearHighlights(list)
+    for model, hl in pairs(list) do
+        pcall(function() hl:Destroy() end)
+    end
+    table.clear(list)
 end
 
 -- Hook ClaimAbility.OnClientInvoke to auto-accept/auto-decline rolled abilities
@@ -571,13 +708,19 @@ task.spawn(function()
                     }
                 }
             }
+            local requestHeaders = {
+                ["Content-Type"] = "application/json"
+            }
+            local requestBody = HttpService:JSONEncode(payload)
             requestFn({
                 Url = url,
                 Method = "POST",
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(payload)
+                Headers = requestHeaders,
+                Body = requestBody,
+                url = url,
+                method = "POST",
+                headers = requestHeaders,
+                body = requestBody
             })
         end)
     end
@@ -827,6 +970,122 @@ Tabs.Stats:AddToggle("AutoPotential", {Title = "Auto Upgrade Potential", Default
     Toggles.AutoPotential = Options.AutoPotential.Value
 end)
 
+-- UI Elements: Extras
+local SpeedSection = Tabs.Extras:AddSection("Movement Enhancements")
+
+SpeedSection:AddToggle("SpeedHack", {Title = "Enable WalkSpeed Modifier", Default = false}):OnChanged(function()
+    Toggles.SpeedHack = Options.SpeedHack.Value
+    if not Toggles.SpeedHack then
+        pcall(function()
+            localPlayer.Character.Humanoid.WalkSpeed = 16
+        end)
+    end
+end)
+
+SpeedSection:AddSlider("SpeedValue", {
+    Title = "Custom WalkSpeed",
+    Description = "Slide to change your character's movement speed",
+    Default = 16,
+    Min = 16,
+    Max = 250,
+    Rounding = 0,
+    Callback = function(Value)
+        CONFIG.SpeedValue = Value
+        if Toggles.SpeedHack then
+            pcall(function()
+                localPlayer.Character.Humanoid.WalkSpeed = Value
+            end)
+        end
+    end
+})
+
+SpeedSection:AddToggle("JumpHack", {Title = "Enable JumpPower Modifier", Default = false}):OnChanged(function()
+    Toggles.JumpHack = Options.JumpHack.Value
+    if not Toggles.JumpHack then
+        pcall(function()
+            localPlayer.Character.Humanoid.JumpPower = 50
+        end)
+    end
+end)
+
+SpeedSection:AddSlider("JumpValue", {
+    Title = "Custom JumpPower",
+    Description = "Slide to change your character's jump height",
+    Default = 50,
+    Min = 50,
+    Max = 300,
+    Rounding = 0,
+    Callback = function(Value)
+        CONFIG.JumpValue = Value
+        if Toggles.JumpHack then
+            pcall(function()
+                localPlayer.Character.Humanoid.JumpPower = Value
+            end)
+        end
+    end
+})
+
+SpeedSection:AddToggle("InfiniteJump", {Title = "Infinite Jump", Default = false}):OnChanged(function()
+    Toggles.InfiniteJump = Options.InfiniteJump.Value
+end)
+
+SpeedSection:AddToggle("NoclipToggle", {Title = "Noclip (Walk through walls)", Default = false}):OnChanged(function()
+    Toggles.Noclip = Options.NoclipToggle.Value
+end)
+
+local FlySection = Tabs.Extras:AddSection("Flight Mechanics")
+
+FlySection:AddToggle("FlyToggle", {Title = "Enable Fly Mode (Press F to Toggle)", Default = false}):OnChanged(function()
+    Toggles.Fly = Options.FlyToggle.Value
+    if Toggles.Fly then
+        pcall(startFlight)
+    else
+        pcall(stopFlight)
+    end
+end)
+
+FlySection:AddSlider("FlySpeedSlider", {
+    Title = "Fly SpeedMultiplier",
+    Description = "Adjust the flight velocity multiplier",
+    Default = 1,
+    Min = 1,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        CONFIG.FlySpeed = Value
+    end
+})
+
+local CombatModsSection = Tabs.Extras:AddSection("Combat Adjustments")
+
+CombatModsSection:AddSlider("AttackCooldownSlider", {
+    Title = "Auto Farm Attack Cooldown (Seconds)",
+    Description = "Lower is faster (0.25s is default/safe)",
+    Default = 0.25,
+    Min = 0.05,
+    Max = 1.00,
+    Rounding = 2,
+    Callback = function(Value)
+        CONFIG.AttackCooldown = Value
+    end
+})
+
+local VisualsSection = Tabs.Extras:AddSection("Visual Helpers")
+
+VisualsSection:AddToggle("PlayerESP", {Title = "Player ESP (Highlights)", Default = false}):OnChanged(function()
+    Toggles.PlayerESP = Options.PlayerESP.Value
+    if not Toggles.PlayerESP then
+        clearHighlights(playerHighlights)
+    end
+end)
+
+VisualsSection:AddToggle("NPC_ESP", {Title = "NPC ESP (Highlights)", Default = false}):OnChanged(function()
+    Toggles.NPC_ESP = Options.NPC_ESP.Value
+    if not Toggles.NPC_ESP then
+        clearHighlights(npcHighlights)
+    end
+end)
+
 -- UI Elements: Misc
 local WheelSection = Tabs.Misc:AddSection("Spin Wheel & Achievements")
 
@@ -989,26 +1248,32 @@ task.spawn(function()
                                 local conn
                                 conn = tween.Completed:Connect(function() completed = true stopNoclip() end)
                                 local start = tick()
-                                while not completed and tick() - start < 15 do task.wait(0.1) end
+                                while not completed and Toggles.AutoFarm and tick() - start < 15 do task.wait(0.1) end
                                 if conn then conn:Disconnect() end
                                 stopNoclip()
+                                if not Toggles.AutoFarm then
+                                    stopTween()
+                                    isCompletingQuest = false
+                                    doingQuest = false
+                                    break
+                                end
                             end
                         end
                     end
                     
                     -- Only turn in if quest is still active & completed
-                    if hasQuest() and isQuestCompleted() then
+                    if Toggles.AutoFarm and hasQuest() and isQuestCompleted() then
                         takeQuest("Completed")
                         -- Wait for server to update stats (hasQuest to become false)
                         local start = tick()
-                        while hasQuest() and tick() - start < 5 do
+                        while hasQuest() and Toggles.AutoFarm and tick() - start < 5 do
                             task.wait(0.1)
                         end
                     end
                     isCompletingQuest = false
                 end
                 
-                if not hasQuest() and not isRequestingQuest then
+                if not hasQuest() and not isRequestingQuest and Toggles.AutoFarm then
                     isRequestingQuest = true
                     -- Go to Quest NPC to accept
                     local npcPos = QuestData[SelectedQuest].NPC_Pos
@@ -1022,19 +1287,25 @@ task.spawn(function()
                                 local conn
                                 conn = tween.Completed:Connect(function() completed = true stopNoclip() end)
                                 local start = tick()
-                                while not completed and tick() - start < 15 do task.wait(0.1) end
+                                while not completed and Toggles.AutoFarm and tick() - start < 15 do task.wait(0.1) end
                                 if conn then conn:Disconnect() end
                                 stopNoclip()
+                                if not Toggles.AutoFarm then
+                                    stopTween()
+                                    isRequestingQuest = false
+                                    doingQuest = false
+                                    break
+                                end
                             end
                         end
                     end
                     
                     -- Only accept if we still don't have a quest to avoid progress reset (0 progress bug)
-                    if not hasQuest() then
+                    if Toggles.AutoFarm and not hasQuest() then
                         takeQuest(SelectedQuest)
                         -- Wait for server to update stats (hasQuest to become true)
                         local start = tick()
-                        while not hasQuest() and tick() - start < 5 do
+                        while not hasQuest() and Toggles.AutoFarm and tick() - start < 5 do
                             task.wait(0.1)
                         end
                     end
@@ -1084,9 +1355,12 @@ task.spawn(function()
                             local conn
                             conn = tween.Completed:Connect(function() completed = true stopNoclip() end)
                             local start = tick()
-                            while not completed and tick() - start < 10 do task.wait(0.1) end
+                            while not completed and Toggles.AutoFarm and tick() - start < 10 do task.wait(0.1) end
                             if conn then conn:Disconnect() end
                             stopNoclip()
+                            if not Toggles.AutoFarm then
+                                stopTween()
+                            end
                         end
                     end
                 end
@@ -1410,6 +1684,102 @@ localPlayer.Idled:Connect(function()
     vu:Button2Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
 end)
 
+-- WalkSpeed & JumpPower Heartbeat Loop
+RunService.Heartbeat:Connect(function()
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChild("Humanoid")
+    if hum then
+        if Toggles.SpeedHack then
+            hum.WalkSpeed = CONFIG.SpeedValue or 16
+        end
+        if Toggles.JumpHack then
+            hum.UseJumpPower = true
+            hum.JumpPower = CONFIG.JumpValue or 50
+        end
+    end
+end)
+
+-- Hook _G.adjustspeed to force custom speed
+task.spawn(function()
+    while not _G.adjustspeed do task.wait(0.5) end
+    local originalAdjustSpeed = _G.adjustspeed
+    _G.adjustspeed = function(p1, p2)
+        if originalAdjustSpeed then
+            originalAdjustSpeed(p1, p2)
+        end
+        local char = localPlayer.Character
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hum and Toggles.SpeedHack then
+            hum.WalkSpeed = CONFIG.SpeedValue or 16
+        end
+    end
+end)
+
+-- Infinite Jump Handler
+UserInputService.JumpRequest:Connect(function()
+    if Toggles.InfiniteJump then
+        pcall(function()
+            local char = localPlayer.Character
+            local hum = char and char:FindFirstChild("Humanoid")
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end
+end)
+
+-- ESP Loop
+task.spawn(function()
+    while task.wait(1) do
+        if Toggles.PlayerESP then
+            for _, player in ipairs(Players:GetPlayers()) do
+                if player ~= localPlayer and player.Character then
+                    applyHighlight(player.Character, Color3.fromRGB(0, 162, 255), playerHighlights)
+                end
+            end
+            for char, _ in pairs(playerHighlights) do
+                local player = Players:GetPlayerFromCharacter(char)
+                if not player or not char.Parent then
+                    removeHighlight(char, playerHighlights)
+                end
+            end
+        end
+        
+        if Toggles.NPC_ESP then
+            local npcFolders = {workspace:FindFirstChild("QuestNPCs"), workspace:FindFirstChild("AltNPCs")}
+            for _, folder in ipairs(npcFolders) do
+                if folder then
+                    for _, npc in ipairs(folder:GetChildren()) do
+                        if npc:IsA("Model") then
+                            applyHighlight(npc, Color3.fromRGB(255, 162, 0), npcHighlights)
+                        end
+                    end
+                end
+            end
+            for _, obj in ipairs(workspace:GetChildren()) do
+                if obj:IsA("Model") and obj ~= localPlayer.Character and not Players:GetPlayerFromCharacter(obj) 
+                   and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+                    applyHighlight(obj, Color3.fromRGB(255, 0, 100), npcHighlights)
+                end
+            end
+            for npc, _ in pairs(npcHighlights) do
+                if not npc.Parent then
+                    removeHighlight(npc, npcHighlights)
+                end
+            end
+        end
+    end
+end)
+
+-- Fly Hotkey listener
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.F then
+        Toggles.Fly = not Toggles.Fly
+        pcall(function() Options.FlyToggle:SetValue(Toggles.Fly) end)
+    end
+end)
+
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
@@ -1421,7 +1791,7 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
 
 Fluent:Notify({
-    Title = "Ultra Unfair v3.1",
-    Content = "DORACKE MADE AND SCRIPT LOADED!",
+    Title = "Ultra Unfair v3.2",
+    Content = "DORACAKE! IS EATED BY DORAEMON , SCRIPT LOADED",
     Duration = 5
 })
