@@ -15,6 +15,7 @@ local Window = Fluent:CreateWindow({
 local Tabs = {
     Home = Window:AddTab({ Title = "Home", Icon = "home" }),
     Tycoon = Window:AddTab({ Title = "Tycoon", Icon = "hammer" }),
+    Shop = Window:AddTab({ Title = "Shop", Icon = "shopping-cart" }),
     Combat = Window:AddTab({ Title = "Combat", Icon = "shield" }),
     Automation = Window:AddTab({ Title = "Automation", Icon = "refresh-cw" }),
     Misc = Window:AddTab({ Title = "Misc", Icon = "wrench" }),
@@ -40,7 +41,14 @@ local Toggles = {
     AutoPlace = false,
     AutoOptimizePlot = false,
     AutoSellBackpack = false,
-    AutoBuyShop = false
+    AutoBuyFarm = false,
+    BuyAllFarm = true,
+    AutoBuyHouse = false,
+    BuyAllHouse = true,
+    AutoBuyMilitary = false,
+    BuyAllMilitary = true,
+    AutoBuyDecor = false,
+    BuyAllDecor = true
 }
 
 local SelectedArmyIndex = 1
@@ -251,9 +259,7 @@ Tabs.Tycoon:AddToggle("AutoOptimizePlot", {Title = "Auto Set Best Plot (Replace 
     Toggles.AutoOptimizePlot = Options.AutoOptimizePlot.Value
 end)
 
-Tabs.Tycoon:AddToggle("AutoBuyShop", {Title = "Auto Buy Shop Buildings", Default = false}):OnChanged(function()
-    Toggles.AutoBuyShop = Options.AutoBuyShop.Value
-end)
+-- Shop options have been relocated to the dedicated Shop tab
 
 Tabs.Tycoon:AddToggle("AutoSellBackpack", {Title = "Auto Sell Backpack Buildings", Default = false}):OnChanged(function()
     Toggles.AutoSellBackpack = Options.AutoSellBackpack.Value
@@ -296,6 +302,16 @@ task.spawn(function()
                             local oldCFrame = root.CFrame
                             local teleportedAny = false
                             
+                            -- Proximity-based sorting to prevent wild teleport jumps
+                            local playerPos = root.Position
+                            table.sort(collectQueue, function(a, b)
+                                local partA = a.PrimaryPart or a:FindFirstChildWhichIsA("BasePart")
+                                local partB = b.PrimaryPart or b:FindFirstChildWhichIsA("BasePart")
+                                local distA = partA and (playerPos - partA.Position).Magnitude or math.huge
+                                local distB = partB and (playerPos - partB.Position).Magnitude or math.huge
+                                return distA < distB
+                            end)
+                            
                             for _, building in ipairs(collectQueue) do
                                 local primary = building.PrimaryPart or building:FindFirstChildWhichIsA("BasePart")
                                 if primary then
@@ -313,6 +329,7 @@ task.spawn(function()
                                     else
                                         task.wait(0.05)
                                     end
+                                    playerPos = root.Position
                                 end
                             end
                             
@@ -575,38 +592,68 @@ local function getBuildingShopPrice(buildingName, config)
     end
 end
 
--- Auto Buy Shop Buildings Loop
+-- Helper to parse comma-separated strings to building lists
+local function parseList(text)
+    local items = {}
+    if not text then return items end
+    for item in string.gmatch(text, "[^,]+") do
+        local clean = string.gsub(item, "^%s*(.-)%s*$", "%1")
+        if clean ~= "" then
+            items[clean] = true
+        end
+    end
+    return items
+end
+
+-- Auto Buy Shop Buildings Loop (Granular Category-Specific)
 task.spawn(function()
     while task.wait(3) do
-        if Toggles.AutoBuyShop then
-            pcall(function()
-                local state = ClientData.playerProducer:getState().player
-                local playerCash = tonumber(state.money) or 0
-                local playerGems = state.gems or 0
-                
-                for _, catName in ipairs({"Farm", "House", "Military", "Decor"}) do
-                    local catData = state.shopsStock[catName]
+        pcall(function()
+            local state = ClientData.playerProducer:getState().player
+            if not state then return end
+            local playerCash = tonumber(state.money) or 0
+            local playerGems = state.gems or 0
+            
+            local categories = {
+                { name = "Farm", toggle = "AutoBuyFarm", buyAll = "BuyAllFarm", input = "FarmBuyListInput" },
+                { name = "House", toggle = "AutoBuyHouse", buyAll = "BuyAllHouse", input = "HouseBuyListInput" },
+                { name = "Military", toggle = "AutoBuyMilitary", buyAll = "BuyAllMilitary", input = "MilitaryBuyListInput" },
+                { name = "Decor", toggle = "AutoBuyDecor", buyAll = "BuyAllDecor", input = "DecorBuyListInput" }
+            }
+            
+            for _, cat in ipairs(categories) do
+                local isEnabled = Options[cat.toggle] and Options[cat.toggle].Value
+                if isEnabled then
+                    local catData = state.shopsStock[cat.name]
                     if catData and catData.stock then
+                        local buyAll = Options[cat.buyAll] and Options[cat.buyAll].Value
+                        local allowedItems = {}
+                        if not buyAll and Options[cat.input] then
+                            allowedItems = parseList(Options[cat.input].Value)
+                        end
+                        
                         for buildingName, stockAmount in pairs(catData.stock) do
                             if stockAmount > 0 then
-                                local config = BuildingsConfig[buildingName]
-                                if config and (not config.researchNeeded or state.skills.unlockedSkills[config.researchNeeded]) then
-                                    local price, isGem = getBuildingShopPrice(buildingName, config)
-                                    if isGem then
-                                        if playerGems >= price then
-                                            GetBridge("BuyFromShop"):Fire({
-                                                shop = catName,
-                                                item = buildingName
-                                            })
-                                            task.wait(0.2)
-                                        end
-                                    else
-                                        if playerCash >= price then
-                                            GetBridge("BuyFromShop"):Fire({
-                                                shop = catName,
-                                                item = buildingName
-                                            })
-                                            task.wait(0.2)
+                                if buyAll or allowedItems[buildingName] then
+                                    local config = BuildingsConfig[buildingName]
+                                    if config and (not config.researchNeeded or (state.skills and state.skills.unlockedSkills[config.researchNeeded])) then
+                                        local price, isGem = getBuildingShopPrice(buildingName, config)
+                                        if isGem then
+                                            if playerGems >= price then
+                                                GetBridge("BuyFromShop"):Fire({
+                                                    shop = cat.name,
+                                                    item = buildingName
+                                                })
+                                                task.wait(0.2)
+                                            end
+                                        else
+                                            if playerCash >= price then
+                                                GetBridge("BuyFromShop"):Fire({
+                                                    shop = cat.name,
+                                                    item = buildingName
+                                                })
+                                                task.wait(0.2)
+                                            end
                                         end
                                     end
                                 end
@@ -614,8 +661,273 @@ task.spawn(function()
                         end
                     end
                 end
-            end)
+            end
+        end)
+    end
+end)
+
+-- Shop Tab UI Elements & List Manipulation
+local defaultFarmList = {"Windmill", "WheatFarm", "TomatoFarm", "CarrotFarm", "PotatoFarm", "BerryFarm", "CornFarm", "AppleFarm", "GemMine", "CloneFacility"}
+local defaultHouseList = {"Tent", "Cabin", "WoodHouse", "BrickHouse", "ModernHouse", "Mansion", "Apartment", "Hotel"}
+local defaultMilitaryList = {"Barracks", "ShootingRange", "TankFactory", "Helipad", "Hangar", "NavyYard", "DefenseTower", "SniperTower", "TowerTurret", "MissileLauncher"}
+local defaultDecorList = {"Tree", "Bush", "Fence", "LightPole", "Bench", "Statue", "Fountain", "FlagPole"}
+
+local FarmList = table.clone(defaultFarmList)
+local HouseList = table.clone(defaultHouseList)
+local MilitaryList = table.clone(defaultMilitaryList)
+local DecorList = table.clone(defaultDecorList)
+
+local function formatList(itemsTable)
+    local sorted = {}
+    for k, _ in pairs(itemsTable) do
+        table.insert(sorted, k)
+    end
+    table.sort(sorted)
+    return table.concat(sorted, ", ")
+end
+
+local function addItemToList(inputOptionName, itemName)
+    local inputObj = Options[inputOptionName]
+    if inputObj then
+        local currentText = inputObj.Value or ""
+        local items = parseList(currentText)
+        if not items[itemName] then
+            items[itemName] = true
+            inputObj:SetValue(formatList(items))
         end
+    end
+end
+
+local function removeItemFromList(inputOptionName, itemName)
+    local inputObj = Options[inputOptionName]
+    if inputObj then
+        local currentText = inputObj.Value or ""
+        local items = parseList(currentText)
+        if items[itemName] then
+            items[itemName] = nil
+            inputObj:SetValue(formatList(items))
+        end
+    end
+end
+
+-- Factories Section
+Tabs.Shop:AddSection("Factories (Farms)")
+Tabs.Shop:AddToggle("AutoBuyFarm", {Title = "Auto Buy Farms", Default = false}):OnChanged(function()
+    Toggles.AutoBuyFarm = Options.AutoBuyFarm.Value
+end)
+Tabs.Shop:AddToggle("BuyAllFarm", {Title = "Buy All Farm Types", Default = true}):OnChanged(function()
+    Toggles.BuyAllFarm = Options.BuyAllFarm.Value
+end)
+local FarmDropdown = Tabs.Shop:AddDropdown("FarmSelector", {
+    Title = "Select Farm Type",
+    Values = FarmList,
+    Default = FarmList[1] or "None",
+    Callback = function() end
+})
+Tabs.Shop:AddInput("FarmBuyListInput", {
+    Title = "Allowed Farm Buy List (Comma Separated)",
+    Default = "Windmill, WheatFarm",
+    Placeholder = "Enter farm names...",
+    Finished = false,
+    Callback = function() end
+})
+Tabs.Shop:AddButton({
+    Title = "Add Selected Farm to Buy List",
+    Callback = function()
+        local val = Options.FarmSelector.Value
+        if val and val ~= "None" and val ~= "" then
+            addItemToList("FarmBuyListInput", val)
+        end
+    end
+})
+Tabs.Shop:AddButton({
+    Title = "Remove Selected Farm from Buy List",
+    Callback = function()
+        local val = Options.FarmSelector.Value
+        if val and val ~= "None" and val ~= "" then
+            removeItemFromList("FarmBuyListInput", val)
+        end
+    end
+})
+
+-- Houses Section
+Tabs.Shop:AddSection("Houses")
+Tabs.Shop:AddToggle("AutoBuyHouse", {Title = "Auto Buy Houses", Default = false}):OnChanged(function()
+    Toggles.AutoBuyHouse = Options.AutoBuyHouse.Value
+end)
+Tabs.Shop:AddToggle("BuyAllHouse", {Title = "Buy All House Types", Default = true}):OnChanged(function()
+    Toggles.BuyAllHouse = Options.BuyAllHouse.Value
+end)
+local HouseDropdown = Tabs.Shop:AddDropdown("HouseSelector", {
+    Title = "Select House Type",
+    Values = HouseList,
+    Default = HouseList[1] or "None",
+    Callback = function() end
+})
+Tabs.Shop:AddInput("HouseBuyListInput", {
+    Title = "Allowed House Buy List (Comma Separated)",
+    Default = "Tent, Cabin",
+    Placeholder = "Enter house names...",
+    Finished = false,
+    Callback = function() end
+})
+Tabs.Shop:AddButton({
+    Title = "Add Selected House to Buy List",
+    Callback = function()
+        local val = Options.HouseSelector.Value
+        if val and val ~= "None" and val ~= "" then
+            addItemToList("HouseBuyListInput", val)
+        end
+    end
+})
+Tabs.Shop:AddButton({
+    Title = "Remove Selected House from Buy List",
+    Callback = function()
+        local val = Options.HouseSelector.Value
+        if val and val ~= "None" and val ~= "" then
+            removeItemFromList("HouseBuyListInput", val)
+        end
+    end
+})
+
+-- Military Section
+Tabs.Shop:AddSection("Military (Army)")
+Tabs.Shop:AddToggle("AutoBuyMilitary", {Title = "Auto Buy Military Buildings", Default = false}):OnChanged(function()
+    Toggles.AutoBuyMilitary = Options.AutoBuyMilitary.Value
+end)
+Tabs.Shop:AddToggle("BuyAllMilitary", {Title = "Buy All Military Types", Default = true}):OnChanged(function()
+    Toggles.BuyAllMilitary = Options.BuyAllMilitary.Value
+end)
+local MilitaryDropdown = Tabs.Shop:AddDropdown("MilitarySelector", {
+    Title = "Select Military Building",
+    Values = MilitaryList,
+    Default = MilitaryList[1] or "None",
+    Callback = function() end
+})
+Tabs.Shop:AddInput("MilitaryBuyListInput", {
+    Title = "Allowed Military Buy List (Comma Separated)",
+    Default = "Barracks",
+    Placeholder = "Enter military names...",
+    Finished = false,
+    Callback = function() end
+})
+Tabs.Shop:AddButton({
+    Title = "Add Selected Military to Buy List",
+    Callback = function()
+        local val = Options.MilitarySelector.Value
+        if val and val ~= "None" and val ~= "" then
+            addItemToList("MilitaryBuyListInput", val)
+        end
+    end
+})
+Tabs.Shop:AddButton({
+    Title = "Remove Selected Military from Buy List",
+    Callback = function()
+        local val = Options.MilitarySelector.Value
+        if val and val ~= "None" and val ~= "" then
+            removeItemFromList("MilitaryBuyListInput", val)
+        end
+    end
+})
+
+-- Special Section
+Tabs.Shop:AddSection("Special (Decor)")
+Tabs.Shop:AddToggle("AutoBuyDecor", {Title = "Auto Buy Special Buildings", Default = false}):OnChanged(function()
+    Toggles.AutoBuyDecor = Options.AutoBuyDecor.Value
+end)
+Tabs.Shop:AddToggle("BuyAllDecor", {Title = "Buy All Special Types", Default = true}):OnChanged(function()
+    Toggles.BuyAllDecor = Options.BuyAllDecor.Value
+end)
+local DecorDropdown = Tabs.Shop:AddDropdown("DecorSelector", {
+    Title = "Select Special Building",
+    Values = DecorList,
+    Default = DecorList[1] or "None",
+    Callback = function() end
+})
+Tabs.Shop:AddInput("DecorBuyListInput", {
+    Title = "Allowed Special Buy List (Comma Separated)",
+    Default = "Tree",
+    Placeholder = "Enter special names...",
+    Finished = false,
+    Callback = function() end
+})
+Tabs.Shop:AddButton({
+    Title = "Add Selected Special to Buy List",
+    Callback = function()
+        local val = Options.DecorSelector.Value
+        if val and val ~= "None" and val ~= "" then
+            addItemToList("DecorBuyListInput", val)
+        end
+    end
+})
+Tabs.Shop:AddButton({
+    Title = "Remove Selected Special from Buy List",
+    Callback = function()
+        local val = Options.DecorSelector.Value
+        if val and val ~= "None" and val ~= "" then
+            removeItemFromList("DecorBuyListInput", val)
+        end
+    end
+})
+
+-- Dynamic Shop Stock Tracker and Dropdown Populator
+local function updateShopDropdowns()
+    pcall(function()
+        local state = ClientData.playerProducer:getState().player
+        if not state or not state.shopsStock then return end
+        
+        local function checkCategory(catName, currentList, dropdownObj, defaultList)
+            local catData = state.shopsStock[catName]
+            if catData and catData.stock then
+                local items = {}
+                for _, v in ipairs(defaultList) do
+                    items[v] = true
+                end
+                for k, _ in pairs(catData.stock) do
+                    items[k] = true
+                end
+                
+                local keys = {}
+                for k, _ in pairs(items) do
+                    table.insert(keys, k)
+                end
+                table.sort(keys)
+                
+                local changed = (#keys ~= #currentList)
+                if not changed then
+                    for i, v in ipairs(keys) do
+                        if v ~= currentList[i] then
+                            changed = true
+                            break
+                        end
+                    end
+                end
+                
+                if changed then
+                    table.clear(currentList)
+                    for _, v in ipairs(keys) do
+                        table.insert(currentList, v)
+                    end
+                    if dropdownObj then
+                        dropdownObj:SetValues(currentList)
+                    end
+                end
+            end
+        end
+        
+        checkCategory("Farm", FarmList, FarmDropdown, defaultFarmList)
+        checkCategory("House", HouseList, HouseDropdown, defaultHouseList)
+        checkCategory("Military", MilitaryList, MilitaryDropdown, defaultMilitaryList)
+        checkCategory("Decor", DecorList, DecorDropdown, defaultDecorList)
+    end)
+end
+
+-- Initialize dropdown values with current state and start background updates
+task.spawn(function()
+    task.wait(2)
+    updateShopDropdowns()
+    while task.wait(5) do
+        updateShopDropdowns()
     end
 end)
 
@@ -916,6 +1228,7 @@ Tabs.Misc:AddSlider("WalkSpeedSlider", {
     Min = 16,
     Max = 150,
     Default = 16,
+    Rounding = 1,
     Callback = function(Value)
         WalkSpeed = Value
     end
@@ -927,6 +1240,7 @@ Tabs.Misc:AddSlider("JumpPowerSlider", {
     Min = 50,
     Max = 200,
     Default = 50,
+    Rounding = 1,
     Callback = function(Value)
         JumpPower = Value
     end
