@@ -4,7 +4,7 @@ local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.
 
 local Window = Fluent:CreateWindow({
     Title = "Ultra Unfair - Ultimate Script",
-    SubTitle = "v3.3 | by DORACAKE (DORAEMON)",
+    SubTitle = "v3.4 | by DORACAKE (DORAEMON)",
     TabWidth = 160,
     Size = UDim2.fromOffset(600, 480),
     Acrylic = true,
@@ -26,6 +26,11 @@ local Tabs = {
 }
 
 -- Updates Section
+Tabs.Updates:AddParagraph({
+    Title = "Version 3.4 (Reroll & Stats Fixes)",
+    Content = "- Auto-Stats Fix: Implemented batch upgrading with temporary teleport to statpointguy, checking cost and limit caps dynamically.\n- Gear Roll & Upgrade Fixes: Added automatic proximity teleports to Face Puncher, Strato, and John NPCs during rolls/upgrades to bypass server checks.\n- Rubber-banding Fixes: Paused movement and combat loops when rerolling, upgrading, training, or traveling to prevent player conflicts.\n- NPC Swap Fix: Corrected dealer (Amplifier) and John (Aura) coordinates."
+})
+
 Tabs.Updates:AddParagraph({
     Title = "Version 3.3 (Advanced Combat & Safety)",
     Content = "- Security & Safety: Integrated Anti-Admin detector (kick/hop) and Player Proximity Detector (pause/teleport) with customizable safe zones.\n- Auto-Training: Added automated Endurance 100 & Chain Prison training bot, along with Anti-Ragdoll and Anti-Stun combat status cleaning.\n- Stats & Gear: Added Smart Stat Point allocation profiles (Glass Cannon, Tank, etc.) and real-time inventory Auto-Equip for Fists, Relics, and Auras.\n- Boss Farming: Integrated Boros, Ryomen, and God spawn detector with combat teleport overrides and server hopping on cooldown.\n- Aura Customizer: Added local RGB customizer for aura effects and lighting."
@@ -74,7 +79,9 @@ local Remotes = {
     TraitReroll = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("TraitReroll"),
     Codes = ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("Codes"),
     RollGear = ReplicatedStorage:WaitForChild("RollGear"),
-    UpgradeItem = ReplicatedStorage:WaitForChild("UpgradeItem")
+    UpgradeItem = ReplicatedStorage:WaitForChild("UpgradeItem"),
+    BuyAmp = ReplicatedStorage:WaitForChild("BuyAmp"),
+    Amplify = ReplicatedStorage:WaitForChild("Amplify")
 }
 
 -- State
@@ -117,6 +124,9 @@ local Toggles = {
     BossFarm = false,
     BossHopOnCooldown = false,
     CustomAuraColorEnabled = false,
+    AutoBuyAmp = false,
+    AutoAmplify = false,
+    AutoCraftTickets = false,
     AutoStats = {
         Power = false,
         Defense = false,
@@ -133,7 +143,8 @@ local CONFIG = {
     SearchRadius = 1500,
     SpeedValue = 16,
     JumpValue = 50,
-    FlySpeed = 1
+    FlySpeed = 1,
+    TargetPotential = 0
 }
 
 -- Quest Mapping (Updated with exact positions from CFrame Logs)
@@ -224,7 +235,8 @@ local Teleports = {
         ["Strato (Relic)"] = Vector3.new(-147.434, 279.871, 403.577),
         ["Face Puncher (Fist)"] = Vector3.new(-183.356, 280.961, 252.900),
         ["statpointguy (Stats)"] = Vector3.new(-148.338, 281.278, 246.250),
-        ["dealer (Aura)"] = Vector3.new(24.345, 281.035, 596.646)
+        ["John (Aura)"] = Vector3.new(-140.435, 281.103, 843.166),
+        ["dealer (Amplifier)"] = Vector3.new(24.345, 281.035, 596.646)
     },
     Locations = {
         ["Malevolent Shrine"] = Vector3.new(-421.237, 312.921, 332.811),
@@ -404,7 +416,7 @@ end
 local currentBossTarget = nil
 
 local function getActiveBoss()
-    local bossNames = {"Boros", "Ryomen", "God"}
+    local bossNames = {"Boros", "Ryomen", "God", "Arlo", "Seraphina", "John"}
     for _, name in ipairs(bossNames) do
         local b = workspace:FindFirstChild(name)
         if b and b:IsA("Model") and b:FindFirstChild("Humanoid") and b.Humanoid.Health > 0 and b:FindFirstChild("HumanoidRootPart") then
@@ -509,6 +521,25 @@ local function tweenTo(cframe)
         activeTween:Play()
         return activeTween
     end
+end
+
+local function travelTo(cframe)
+    local char = localPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root then
+        local mode = (Options.TravelMode and Options.TravelMode.Value) or "Tweening"
+        if mode == "Instant Teleport" then
+            stopTween()
+            startNoclip()
+            root.CFrame = cframe
+            task.wait(0.05)
+            stopNoclip()
+            return nil
+        else
+            return tweenTo(cframe)
+        end
+    end
+    return nil
 end
 
 -- Reroll helper functions
@@ -984,6 +1015,14 @@ Tabs.Combat:AddToggle("AutoBlock", {Title = "Auto Block", Default = false}):OnCh
     Toggles.AutoBlock = Options.AutoBlock.Value
 end)
 
+Tabs.Combat:AddToggle("AutoBuyAmp", {Title = "Auto-Buy Amplifiers ($50k)", Default = false}):OnChanged(function()
+    Toggles.AutoBuyAmp = Options.AutoBuyAmp.Value
+end)
+
+Tabs.Combat:AddToggle("AutoAmplify", {Title = "Auto-Amplify (Combat Boost)", Default = false}):OnChanged(function()
+    Toggles.AutoAmplify = Options.AutoAmplify.Value
+end)
+
 -- UI Elements: Rerolls
 local AbilitySection = Tabs.Rerolls:AddSection("Ability Auto Reroller")
 
@@ -1086,6 +1125,16 @@ GearSection:AddToggle("AutoRollAura", {Title = "Auto Roll Aura", Default = false
     Toggles.AutoRollAura = Options.AutoRollAura.Value
 end)
 
+GearSection:AddToggle("AutoCraftTickets", {Title = "Auto Craft/Merge Tickets (Kelley)", Default = false}):OnChanged(function()
+    Toggles.AutoCraftTickets = Options.AutoCraftTickets.Value
+end)
+
+GearSection:AddDropdown("MaxCraftTier", {
+    Title = "Max Craft Ticket Tier",
+    Values = {"Elite-Tier", "High-Tier", "God-Tier", "Mythical", "Divine", "Ascended", "Epic", "Dev", "???"},
+    Default = "???"
+})
+
 -- UI Elements: Stats
 for _, stat in pairs({"Power", "Defense", "Speed", "Recovery", "Trick"}) do
     Tabs.Stats:AddToggle("AutoStat"..stat, {Title = "Auto "..stat, Default = false}):OnChanged(function()
@@ -1097,8 +1146,26 @@ Tabs.Stats:AddToggle("AutoPotential", {Title = "Auto Upgrade Potential", Default
     Toggles.AutoPotential = Options.AutoPotential.Value
 end)
 
+Tabs.Stats:AddSlider("TargetPotential", {
+    Title = "Target Potential Limit",
+    Description = "Stop rolling potential tokens when potential is at or above this value (0 to ignore limit)",
+    Default = 0,
+    Min = 0,
+    Max = 10,
+    Rounding = 1,
+    Callback = function(Value)
+        CONFIG.TargetPotential = Value
+    end
+})
+
 -- UI Elements: Extras
 local SpeedSection = Tabs.Extras:AddSection("Movement Enhancements")
+
+SpeedSection:AddDropdown("TravelMode", {
+    Title = "Travel Mode",
+    Values = {"Tweening", "Instant Teleport"},
+    Default = "Tweening"
+})
 
 SpeedSection:AddToggle("SpeedHack", {Title = "Enable WalkSpeed Modifier", Default = false}):OnChanged(function()
     Toggles.SpeedHack = Options.SpeedHack.Value
@@ -1481,6 +1548,10 @@ end
 -- Loops
 local doingQuest = false
 
+local function isGearOrTraitBusy()
+    return Toggles.AutoTraitReroll or Toggles.AutoRollFist or Toggles.AutoUpgradeFist or Toggles.AutoRollRelic or Toggles.AutoUpgradeRelic or Toggles.AutoRollAura or Toggles.AutoTrainEndurance or Toggles.AutoTrainChainPrison or Toggles.AutoCraftTickets
+end
+
 -- Spam Complete Loop
 task.spawn(function()
     while task.wait(0.5) do
@@ -1498,7 +1569,7 @@ local isCompletingQuest = false
 -- Master Auto Farm & Quest Loop
 task.spawn(function()
     while task.wait(0.5) do
-        if Toggles.AutoFarm and Toggles.AutoQuest then
+        if Toggles.AutoFarm and Toggles.AutoQuest and not isGearOrTraitBusy() then
             -- Auto-adjust quest for player level if Master Level Farm is active
             if Toggles.MasterLevelFarm then
                 local perfect = getPerfectQuest()
@@ -1526,7 +1597,7 @@ task.spawn(function()
                     local root = char and char:FindFirstChild("HumanoidRootPart")
                     if root then
                         if (root.Position - npcPos).Magnitude > 15 then
-                            local tween = tweenTo(CFrame.new(npcPos))
+                            local tween = travelTo(CFrame.new(npcPos))
                             if tween then
                                 local completed = false
                                 local conn
@@ -1565,7 +1636,7 @@ task.spawn(function()
                     local root = char and char:FindFirstChild("HumanoidRootPart")
                     if root then
                         if (root.Position - npcPos).Magnitude > 15 then
-                            local tween = tweenTo(CFrame.new(npcPos))
+                            local tween = travelTo(CFrame.new(npcPos))
                             if tween then
                                 local completed = false
                                 local conn
@@ -1607,7 +1678,7 @@ end)
 -- Movement & Target Tracking Loop
 task.spawn(function()
     while task.wait(0.2) do
-        if Toggles.AutoFarm or (Toggles.BossFarm and currentBossTarget) then
+        if (Toggles.AutoFarm or (Toggles.BossFarm and currentBossTarget)) and not doingQuest and not isGearOrTraitBusy() then
             local target = getTargetNPC()
             local char = localPlayer.Character
             local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -1618,8 +1689,8 @@ task.spawn(function()
                     local dist = (root.Position - targetPos).Magnitude
                     
                     if dist > 20 then
-                        -- Tween to target
-                        tweenTo(target.HumanoidRootPart.CFrame * CFrame.new(0, 0, 4))
+                        -- Travel to target
+                        travelTo(target.HumanoidRootPart.CFrame * CFrame.new(0, 0, 4))
                     else
                         -- Stay close for combat
                         stopTween()
@@ -1633,7 +1704,7 @@ task.spawn(function()
                     local spawnPos = QuestData[SelectedQuest].Spawn_Pos
                     local distToSpawn = (root.Position - spawnPos).Magnitude
                     if distToSpawn > 15 then
-                        local tween = tweenTo(CFrame.new(spawnPos))
+                        local tween = travelTo(CFrame.new(spawnPos))
                         if tween then
                             local completed = false
                             local conn
@@ -1663,7 +1734,7 @@ local comboIndex = 1
 
 RunService.Heartbeat:Connect(function()
     if not Toggles.AutoFarm and not Toggles.KillAura and not (Toggles.BossFarm and currentBossTarget) then return end
-    if doingQuest and not Toggles.KillAura and not (Toggles.BossFarm and currentBossTarget) then return end
+    if (doingQuest or isGearOrTraitBusy()) and not Toggles.KillAura and not (Toggles.BossFarm and currentBossTarget) then return end
     if playerDetectorPaused then return end
     
     local char = localPlayer.Character
@@ -1680,6 +1751,19 @@ RunService.Heartbeat:Connect(function()
                 target.HumanoidRootPart.Velocity = Vector3.new(0,0,0)
                 target.HumanoidRootPart.RotVelocity = Vector3.new(0,0,0)
             end)
+        end
+
+        -- Auto Amplify
+        if Toggles.AutoAmplify and not localPlayer:FindFirstChild("Amplifier") then
+            local statsVal = localPlayer:FindFirstChild("Stats")
+            if statsVal then
+                local data = HttpService:JSONDecode(statsVal.Value)
+                if data and (data.Amplifiers or 0) > 0 then
+                    pcall(function()
+                        Remotes.Amplify:FireServer()
+                    end)
+                end
+            end
         end
 
         -- Attack
@@ -1750,73 +1834,133 @@ local statNames = {"Power", "Defense", "Speed", "Recovery", "Trick"}
 
 task.spawn(function()
     while task.wait(1.5) do
-        local mode = (Options.StatProfileMode and Options.StatProfileMode.Value) or "Individual Toggles"
-        if mode == "Individual Toggles" then
-            -- Old behavior
-            for stat, enabled in pairs(Toggles.AutoStats) do
-                if enabled then
-                    pcall(function()
-                        Remotes.StatPoint:InvokeServer(stat)
-                    end)
-                end
-            end
-        else
-            -- Profile behavior
-            local weights = {Power = 0, Defense = 0, Speed = 0, Recovery = 0, Trick = 0}
-            if mode == "Glass Cannon" then
-                weights.Power = 80
-                weights.Speed = 20
-            elseif mode == "Tank" then
-                weights.Defense = 60
-                weights.Recovery = 40
-            elseif mode == "Balanced" then
-                weights.Power = 20
-                weights.Defense = 20
-                weights.Speed = 20
-                weights.Recovery = 20
-                weights.Trick = 20
-            elseif mode == "Speed Demon" then
-                weights.Speed = 80
-                weights.Power = 20
-            elseif mode == "Trickster" then
-                weights.Trick = 80
-                weights.Speed = 20
-            elseif mode == "Custom Ratio" then
-                weights.Power = Options.StatRatioPower.Value or 20
-                weights.Defense = Options.StatRatioDefense.Value or 20
-                weights.Speed = Options.StatRatioSpeed.Value or 20
-                weights.Recovery = Options.StatRatioRecovery.Value or 20
-                weights.Trick = Options.StatRatioTrick.Value or 20
-            end
+        local statsVal = localPlayer:FindFirstChild("Stats")
+        if statsVal and statsVal:IsA("StringValue") then
+            local success, data = pcall(function()
+                return HttpService:JSONDecode(statsVal.Value)
+            end)
             
-            -- Read current allocated stat points from player stats JSON
-            local statsVal = localPlayer:FindFirstChild("Stats")
-            if statsVal and statsVal:IsA("StringValue") then
-                local success, data = pcall(function()
-                    return HttpService:JSONDecode(statsVal.Value)
-                end)
+            if success and data and data.StatPoints then
+                local totalUpgrades = data.TotalUpgrades or 0
+                local maxUpgrades = data.MaxUpgrades or 50
+                local currentMoney = data.Money or 0
                 
-                if success and data and data.StatPoints then
-                    local statPoints = data.StatPoints
-                    local bestStat = nil
-                    local minScore = math.huge
-                    
-                    for _, name in ipairs(statNames) do
-                        local weight = weights[name] or 0
-                        if weight > 0 then
-                            local current = statPoints[name] or 0
-                            local score = current / weight
-                            if score < minScore then
-                                minScore = score
-                                bestStat = name
-                            end
+                local upgradesToPerform = {}
+                local tempTotal = totalUpgrades
+                local tempMoney = currentMoney
+                
+                local mode = (Options.StatProfileMode and Options.StatProfileMode.Value) or "Individual Toggles"
+                
+                if mode == "Individual Toggles" then
+                    local enabledStats = {}
+                    for _, stat in ipairs(statNames) do
+                        if Toggles.AutoStats[stat] then
+                            table.insert(enabledStats, stat)
                         end
                     end
                     
-                    if bestStat then
-                        pcall(function()
-                            Remotes.StatPoint:InvokeServer(bestStat)
-                        end)
+                    if #enabledStats > 0 then
+                        local index = 1
+                        while tempTotal < maxUpgrades do
+                            local cost = (tempTotal + 1) * 10000
+                            if tempMoney < cost then break end
+                            
+                            local stat = enabledStats[index]
+                            table.insert(upgradesToPerform, stat)
+                            tempMoney = tempMoney - cost
+                            tempTotal = tempTotal + 1
+                            
+                            index = index + 1
+                            if index > #enabledStats then index = 1 end
+                        end
+                    end
+                else
+                    local weights = {Power = 0, Defense = 0, Speed = 0, Recovery = 0, Trick = 0}
+                    if mode == "Glass Cannon" then
+                        weights.Power = 80
+                        weights.Speed = 20
+                    elseif mode == "Tank" then
+                        weights.Defense = 60
+                        weights.Recovery = 40
+                    elseif mode == "Balanced" then
+                        weights.Power = 20
+                        weights.Defense = 20
+                        weights.Speed = 20
+                        weights.Recovery = 20
+                        weights.Trick = 20
+                    elseif mode == "Speed Demon" then
+                        weights.Speed = 80
+                        weights.Power = 20
+                    elseif mode == "Trickster" then
+                        weights.Trick = 80
+                        weights.Speed = 20
+                    elseif mode == "Custom Ratio" then
+                        weights.Power = Options.StatRatioPower.Value or 20
+                        weights.Defense = Options.StatRatioDefense.Value or 20
+                        weights.Speed = Options.StatRatioSpeed.Value or 20
+                        weights.Recovery = Options.StatRatioRecovery.Value or 20
+                        weights.Trick = Options.StatRatioTrick.Value or 20
+                    end
+                    
+                    local tempStatPoints = {}
+                    for k, v in pairs(data.StatPoints) do
+                        tempStatPoints[k] = v
+                    end
+                    
+                    while tempTotal < maxUpgrades do
+                        local cost = (tempTotal + 1) * 10000
+                        if tempMoney < cost then break end
+                        
+                        local bestStat = nil
+                        local minScore = math.huge
+                        for _, name in ipairs(statNames) do
+                            local weight = weights[name] or 0
+                            if weight > 0 then
+                                local current = tempStatPoints[name] or 0
+                                local score = current / weight
+                                if score < minScore then
+                                    minScore = score
+                                    bestStat = name
+                                end
+                            end
+                        end
+                        
+                        if bestStat then
+                            tempMoney = tempMoney - cost
+                            tempTotal = tempTotal + 1
+                            tempStatPoints[bestStat] = (tempStatPoints[bestStat] or 0) + 1
+                            table.insert(upgradesToPerform, bestStat)
+                        else
+                            break
+                        end
+                    end
+                end
+                
+                if #upgradesToPerform > 0 then
+                    local char = localPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        local oldCFrame = root.CFrame
+                        local wasDoingQuest = doingQuest
+                        doingQuest = true
+                        stopTween()
+                        
+                        -- Teleport to statpointguy
+                        local npcPos = Teleports.AltNPCs["statpointguy (Stats)"]
+                        root.CFrame = CFrame.new(npcPos)
+                        task.wait(0.3) -- wait for physics/network sync
+                        
+                        for _, statToUpgrade in ipairs(upgradesToPerform) do
+                            pcall(function()
+                                Remotes.StatPoint:InvokeServer(statToUpgrade)
+                            end)
+                            task.wait(0.1)
+                        end
+                        
+                        -- Return
+                        root.CFrame = oldCFrame
+                        task.wait(0.2)
+                        doingQuest = wasDoingQuest
                     end
                 end
             end
@@ -1887,6 +2031,16 @@ end)
 task.spawn(function()
     while task.wait(1) do
         if Toggles.AutoRollFist then
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local npcPos = Teleports.AltNPCs["Face Puncher (Fist)"]
+            if root and npcPos then
+                if (root.Position - npcPos).Magnitude > 10 then
+                    stopTween()
+                    root.CFrame = CFrame.new(npcPos)
+                    task.wait(0.5)
+                end
+            end
             pcall(function()
                 Remotes.RollGear:InvokeServer("Fist")
             end)
@@ -1897,6 +2051,16 @@ end)
 task.spawn(function()
     while task.wait(1) do
         if Toggles.AutoRollRelic then
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local npcPos = Teleports.AltNPCs["Strato (Relic)"]
+            if root and npcPos then
+                if (root.Position - npcPos).Magnitude > 10 then
+                    stopTween()
+                    root.CFrame = CFrame.new(npcPos)
+                    task.wait(0.5)
+                end
+            end
             pcall(function()
                 Remotes.RollGear:InvokeServer("Relic")
             end)
@@ -1907,6 +2071,16 @@ end)
 task.spawn(function()
     while task.wait(1) do
         if Toggles.AutoRollAura then
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local npcPos = Teleports.AltNPCs["John (Aura)"]
+            if root and npcPos then
+                if (root.Position - npcPos).Magnitude > 10 then
+                    stopTween()
+                    root.CFrame = CFrame.new(npcPos)
+                    task.wait(0.5)
+                end
+            end
             pcall(function()
                 Remotes.RollGear:InvokeServer("Aura")
             end)
@@ -1917,6 +2091,16 @@ end)
 task.spawn(function()
     while task.wait(2) do
         if Toggles.AutoUpgradeFist then
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local npcPos = Teleports.AltNPCs["Face Puncher (Fist)"]
+            if root and npcPos then
+                if (root.Position - npcPos).Magnitude > 10 then
+                    stopTween()
+                    root.CFrame = CFrame.new(npcPos)
+                    task.wait(0.5)
+                end
+            end
             pcall(function()
                 local statsVal = localPlayer:FindFirstChild("Stats")
                 if statsVal then
@@ -1924,6 +2108,7 @@ task.spawn(function()
                     if v13 and v13.Fists then
                         for i = 1, #v13.Fists do
                             Remotes.UpgradeItem:InvokeServer("Fist", i)
+                            task.wait(0.1)
                         end
                     end
                 end
@@ -1935,6 +2120,16 @@ end)
 task.spawn(function()
     while task.wait(2) do
         if Toggles.AutoUpgradeRelic then
+            local char = localPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            local npcPos = Teleports.AltNPCs["Strato (Relic)"]
+            if root and npcPos then
+                if (root.Position - npcPos).Magnitude > 10 then
+                    stopTween()
+                    root.CFrame = CFrame.new(npcPos)
+                    task.wait(0.5)
+                end
+            end
             pcall(function()
                 local statsVal = localPlayer:FindFirstChild("Stats")
                 if statsVal then
@@ -1942,6 +2137,7 @@ task.spawn(function()
                     if v13 and v13.Relics then
                         for i = 1, #v13.Relics do
                             Remotes.UpgradeItem:InvokeServer("Relic", i)
+                            task.wait(0.1)
                         end
                     end
                 end
@@ -1993,9 +2189,32 @@ end)
 task.spawn(function()
     while task.wait(1) do
         if Toggles.AutoPotential then
-            pcall(function()
-                Remotes.PotentialToken:FireServer()
-            end)
+            local statsVal = localPlayer:FindFirstChild("Stats")
+            local shouldRoll = true
+            if statsVal and statsVal:IsA("StringValue") then
+                local success, data = pcall(function()
+                    return HttpService:JSONDecode(statsVal.Value)
+                end)
+                if success and data and data.Potential then
+                    local target = CONFIG.TargetPotential or 0
+                    if target > 0 and data.Potential >= target then
+                        shouldRoll = false
+                        Toggles.AutoPotential = false
+                        pcall(function() Options.AutoPotential:SetValue(false) end)
+                        Fluent:Notify({
+                            Title = "Potential Safe-stop",
+                            Content = "Target potential reached: " .. tostring(data.Potential) .. "!",
+                            Duration = 8
+                        })
+                    end
+                end
+            end
+            
+            if shouldRoll then
+                pcall(function()
+                    Remotes.PotentialToken:FireServer()
+                end)
+            end
         end
     end
 end)
@@ -2442,6 +2661,138 @@ RunService.Heartbeat:Connect(function()
     end
 end)
 
+-- Auto-Buy Amplifiers Loop
+task.spawn(function()
+    while task.wait(3) do
+        if Toggles.AutoBuyAmp then
+            local statsVal = localPlayer:FindFirstChild("Stats")
+            if statsVal and statsVal:IsA("StringValue") then
+                local success, data = pcall(function()
+                    return HttpService:JSONDecode(statsVal.Value)
+                end)
+                
+                if success and data and (data.Money or 0) >= 50000 and (data.Amplifiers or 0) < 5 then
+                    local char = localPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        local oldCFrame = root.CFrame
+                        local wasDoingQuest = doingQuest
+                        doingQuest = true
+                        stopTween()
+                        
+                        -- Teleport to dealer
+                        local npcPos = Teleports.AltNPCs["dealer (Amplifier)"]
+                        if npcPos then
+                            root.CFrame = CFrame.new(npcPos)
+                            task.wait(0.3)
+                            
+                            pcall(function()
+                                Remotes.BuyAmp:FireServer()
+                            end)
+                            task.wait(0.1)
+                        end
+                        
+                        root.CFrame = oldCFrame
+                        task.wait(0.2)
+                        doingQuest = wasDoingQuest
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- Ticket Crafting Loop
+local ticketCraftRequirements = {
+    ["Elite-Tier"] = { count = 3, cost = "Common" },
+    ["High-Tier"] = { count = 6, cost = "Elite-Tier" },
+    ["God-Tier"] = { count = 9, cost = "High-Tier" },
+    ["Mythical"] = { count = 12, cost = "God-Tier" },
+    ["Divine"] = { count = 5, cost = "Mythical" },
+    ["Ascended"] = { count = 5, cost = "Divine" },
+    ["Epic"] = { count = 5, cost = "Ascended" },
+    ["Dev"] = { count = 8, cost = "Epic" },
+    ["???"] = { count = 150, cost = "Dev" }
+}
+
+local ticketOrder = {"Elite-Tier", "High-Tier", "God-Tier", "Mythical", "Divine", "Ascended", "Epic", "Dev", "???"}
+
+local function getOrderIndex(tier)
+    for i, t in ipairs(ticketOrder) do
+        if t == tier then return i end
+    end
+    return #ticketOrder
+end
+
+task.spawn(function()
+    while task.wait(3) do
+        if Toggles.AutoCraftTickets then
+            local targetMaxTier = (Options.MaxCraftTier and Options.MaxCraftTier.Value) or "???"
+            local statsVal = localPlayer:FindFirstChild("Stats")
+            if statsVal and statsVal:IsA("StringValue") then
+                local success, data = pcall(function()
+                    return HttpService:JSONDecode(statsVal.Value)
+                end)
+                
+                if success and data and data.Tickets then
+                    local currentTickets = {}
+                    for k, v in pairs(data.Tickets) do
+                        currentTickets[k] = tonumber(v) or 0
+                    end
+                    
+                    local craftQueue = {}
+                    local maxIdx = getOrderIndex(targetMaxTier)
+                    
+                    for idx = 1, maxIdx do
+                        local tier = ticketOrder[idx]
+                        local req = ticketCraftRequirements[tier]
+                        if req then
+                            local costTicket = req.cost
+                            local neededCount = req.count
+                            local available = currentTickets[costTicket] or 0
+                            
+                            while available >= neededCount do
+                                table.insert(craftQueue, tier)
+                                available = available - neededCount
+                                currentTickets[costTicket] = available
+                                currentTickets[tier] = (currentTickets[tier] or 0) + 1
+                            end
+                        end
+                    end
+                    
+                    if #craftQueue > 0 then
+                        local char = localPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            local oldCFrame = root.CFrame
+                            local wasDoingQuest = doingQuest
+                            doingQuest = true
+                            stopTween()
+                            
+                            local npcPos = Teleports.AltNPCs["Kelley (Crafting)"]
+                            if npcPos then
+                                root.CFrame = CFrame.new(npcPos)
+                                task.wait(0.3)
+                                
+                                for _, tierToCraft in ipairs(craftQueue) do
+                                    pcall(function()
+                                        Remotes.Reroll:InvokeServer("Craft", tierToCraft)
+                                    end)
+                                    task.wait(0.1)
+                                end
+                                
+                                root.CFrame = oldCFrame
+                                task.wait(0.2)
+                            end
+                            doingQuest = wasDoingQuest
+                        end
+                    end
+                end
+            end
+        end
+    end
+end)
+
 SaveManager:SetLibrary(Fluent)
 InterfaceManager:SetLibrary(Fluent)
 SaveManager:IgnoreThemeSettings()
@@ -2453,7 +2804,7 @@ SaveManager:BuildConfigSection(Tabs.Settings)
 Window:SelectTab(1)
 
 Fluent:Notify({
-    Title = "Ultra Unfair v3.2",
-    Content = "BAKE DORACAKE ,SCRIPT LOADED!",
+    Title = "Ultra Unfair v3.4",
+    Content = "Script Overhaul Loaded Successfully!",
     Duration = 5
 })
