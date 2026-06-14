@@ -204,6 +204,7 @@ _G.AutoBuyGears = false
 _G.AutoSteal = false
 _G.StealAndKickOwner = false
 _G.ProtectGarden = false
+_G.KillAuraLargeRange = false
 _G.ShovelAura = false
 _G.EquipShovelKillAura = false
 _G.GoldenSeedFarm = false
@@ -478,6 +479,18 @@ local function sellCropsSelective()
     end
 end
 
+-- Helper: Check if player is holding a shovel
+local function isHoldingShovel()
+    local char = LocalPlayer.Character
+    if not char then return false end
+    for _, t in ipairs(char:GetChildren()) do
+        if t:IsA("Tool") and t.Name:lower():find("shovel") then
+            return true
+        end
+    end
+    return false
+end
+
 -- Shovel Combat: Swing & Hit Player
 local function hitPlayerWithShovel(targetPlayer)
     local char = LocalPlayer.Character
@@ -571,7 +584,7 @@ local Fluent = loadstring(game:HttpGet("https://github.com/dawid-scripts/Fluent/
 
 local Window = Fluent:CreateWindow({
     Title = "Grow A Garden 2",
-    SubTitle = "Premium Automation Script [v2.4]",
+    SubTitle = "Premium Automation Script [v2.5]",
     TabWidth = 160,
     Size = UDim2.fromOffset(580, 460),
     Acrylic = false, -- FIXED: Disabled background blur
@@ -608,6 +621,11 @@ local gameParagraph = Tabs.Home:AddParagraph({
 local updatesTitle = Tabs.Updates:AddParagraph({
     Title = "Version History",
     Content = "Below you can find the development changelog and update history for Grow A Garden 2 script."
+})
+
+local v2_5Paragraph = Tabs.Updates:AddParagraph({
+    Title = "Version 2.5",
+    Content = "• Kill Aura Large Range Toggle:\n  Adds a toggle to swing, damage, and fling/kick players within a 100-stud range. This requires holding a shovel. It teleports you instantly to touch them from the front, swings the shovel, fires the server validation, and teleports you back in under 0.1s."
 })
 
 local v2_4Paragraph = Tabs.Updates:AddParagraph({
@@ -677,6 +695,29 @@ local function sendStatsToDiscord(timeString, sheckles, plotId, executor)
     
     sendDiscordWebhook(webhookUrl, data)
 end
+
+-- Version Checker (Checks immediately and then every 5 minutes / 300 seconds)
+local currentVersion = "v2.5"
+task.spawn(function()
+    while true do
+        local success, result = pcall(function()
+            return loadstring(game:HttpGet("https://raw.githubusercontent.com/snawdrf/my_script/refs/heads/main/statusgg2.lua"))()
+        end)
+        
+        if success and typeof(result) == "table" then
+            if result.Version and result.Version ~= currentVersion then
+                local kickMsg = result.Message or "UNIVERSAL SUN HUB GG2 UPDATED PLS REEXCUTTE TO USE NEW FEATURES"
+                pcall(function()
+                    LocalPlayer:Kick(kickMsg)
+                end)
+                break
+            end
+        end
+        
+        task.wait(300)
+        if _G.GG2_ScriptCount ~= currentInstance then break end
+    end
+end)
 
 -- Dynamic Home Tab Update Loop
 local startTime = os.time()
@@ -836,6 +877,12 @@ local ToggleEquipShovelKillAura = Tabs.Steal:AddToggle("EquipShovelKillAuraToggl
     Title = "Equip Shovel + Kill Aura (Auto equips & swings)",
     Default = false,
     Callback = function(v) _G.EquipShovelKillAura = v end
+})
+
+local ToggleKillAuraLargeRange = Tabs.Steal:AddToggle("KillAuraLargeRangeToggle", {
+    Title = "Kill Aura Large Range",
+    Default = false,
+    Callback = function(v) _G.KillAuraLargeRange = v end
 })
 
 -- Tab 3: Shops & Sell
@@ -1297,6 +1344,7 @@ task.spawn(function()
     end
 end)
 
+local largeRangeCooldowns = {}
 -- Loop 2: Shovel Kill Aura, Equip Shovel Aura, and Garden Protection (High Speed)
 task.spawn(function()
     while task.wait(0.15) do
@@ -1305,6 +1353,45 @@ task.spawn(function()
         -- General Shovel Equip + Kill Aura
         if _G.EquipShovelKillAura then
             pcall(autoEquipAndKillAura)
+        end
+
+        -- Kill Aura Large Range (Teleport and Hit)
+        if _G.KillAuraLargeRange then
+            pcall(function()
+                if not isHoldingShovel() then return end
+                
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local now = os.clock()
+                    for _, player in ipairs(Players:GetPlayers()) do
+                        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+                            local dist = (player.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
+                            if dist <= 100 then
+                                if not largeRangeCooldowns[player] or (now - largeRangeCooldowns[player] >= 0.8) then
+                                    largeRangeCooldowns[player] = now
+                                    
+                                    local targetHRP = player.Character.HumanoidRootPart
+                                    local targetPos = targetHRP.Position
+                                    -- Position ourselves 2.5 studs in front of target, facing them
+                                    local standPos = targetPos + (targetHRP.CFrame.LookVector * 2.5)
+                                    local oldCFrame = hrp.CFrame
+                                    
+                                    hrp.CFrame = CFrame.lookAt(standPos, targetPos)
+                                    task.wait(0.08)
+                                    
+                                    Networking.Shovel.SwingShovel:Fire()
+                                    Networking.Shovel.HitPlayer:Fire(player.UserId)
+                                    task.wait(0.08)
+                                    
+                                    hrp.CFrame = oldCFrame
+                                    break -- Process one player per tick to avoid stuttering
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
         end
         
         -- Shovel Aura (only swings)
